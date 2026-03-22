@@ -134,9 +134,7 @@ def parse_args():
         parser.add_argument(
             "--adamw_lr", default=None, type=float, help="lr for adam in "
         )
-    parser.add_argument("--do_hpo", action="store_true")
-    parser.add_argument("--hpo_n_trials", type=int, default=12)
-    parser.add_argument("--hpo_storage_dir", type=str, default="./optuna_results")
+
     ##### Problem Specific Arguments #####
     dataset = args1.dataset.lower()
     if dataset in LLM_DATASETS:

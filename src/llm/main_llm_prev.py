@@ -101,7 +101,7 @@ def get_peft_config(args, target_modules):
     return peft_config
 
 
-def run_single_experiment(args):
+def main(args):
     set_seed(args.seed)
 
     args.dataset = args.dataset.lower()
@@ -114,6 +114,7 @@ def run_single_experiment(args):
     elif args.dataset in NLG_DATASETS:
         args.task_type = "SEQ_2_SEQ_LM"
     else:
+        #~ fix this error message
         raise ValueError(f"Unknown dataset={args.dataset}, choose from available options:")
 
     args.do_train = not args.do_not_train
@@ -131,7 +132,7 @@ def run_single_experiment(args):
                 )
             with FileLock(".lock") as lock:
                 nltk.download("punkt_tab", quiet=True)
-
+    
     framework = create_model_framework(args)
     model, tokenizer = framework.load_model_and_tokenizer()
 
@@ -142,6 +143,13 @@ def run_single_experiment(args):
 
     peft_config = get_peft_config(args, framework.get_target_modules())
 
+    # Turns out you do not need these, but mb they could be used to fix nlg (without quantization) somehow...
+    #model.gradient_checkpointing_enable()
+    #model.enable_input_require_grads()
+
+    # By default `use_cache=True` which generates warning (nlg) for some reason    
+    #model.config.use_cache = False
+
     if peft_config is not None:
         model = peft.get_peft_model(model, peft_config)
 
@@ -150,6 +158,10 @@ def run_single_experiment(args):
     AutoTrainer = problem.get_trainer_class()
     training_args = problem.get_training_args()
     optimizer = get_optimizer(args, model)
+
+    # For wandb only?
+    #training_args.label_names = ["labels"]
+    #training_args.model_name = args.model
 
     trainer = AutoTrainer(
         model=model,
@@ -162,21 +174,23 @@ def run_single_experiment(args):
         compute_metrics=compute_metrics,
     )
 
-    train_metrics = {}
-    eval_metrics = {}
-    predict_metrics = {}
-
     if args.do_train:
         print("~~~~~~~~~~~~~~~ TRAINING ~~~~~~~~~~~~~~~")
+
         results = trainer.train()
-        train_metrics = results.metrics
-        train_metrics["train_samples"] = (
+        #trainer.save_model()
+
+        metrics = results.metrics
+        metrics["train_samples"] = (
             min(args.max_train_samples, len(train_dataset))
             if args.max_train_samples is not None
             else len(train_dataset)
         )
-        train_metrics["train_memory_gb"] = torch.cuda.max_memory_allocated() / 2**30
-        trainer.log_metrics("train", train_metrics)
+        metrics["train_memory_gb"] = torch.cuda.max_memory_allocated() / 2**30
+
+        trainer.log_metrics("train", metrics)
+        #trainer.save_metrics("train", metrics)
+        #trainer.save_state()
 
     if args.do_eval:
         print("~~~~~~~~~~~~~~~ VALIDATING ~~~~~~~~~~~~~~~")
@@ -187,30 +201,41 @@ def run_single_experiment(args):
             else len(eval_dataset)
         )
 
+        # max_length & num_beams for nlg
+        # eval_samples (aka unprocessed eval dataset) for squad
+        # nothing for glue?
         if args.task_type == "QUESTION_ANS":
+            # Unprocessed eval dataset
             eval_samples = problem.eval_dataset
+
             if len(eval_samples) > max_eval_samples:
                 eval_samples = eval_samples.select(range(max_eval_samples))
+
             eval_kwargs = {"eval_samples": eval_samples}
         elif args.task_type == "SEQ_2_SEQ_LM":
             eval_kwargs = {
                 "max_length": (
+                    # We do not set it implicitly, docs say it defaults to the max_length value of
+                    # the model config, maybe it is better to always use args.val_max_target_length
                     training_args.generation_max_length
                     if training_args.generation_max_length is not None
-                    else args.val_max_target_length
+                    else args.val_max_target_length #~ maybe always use this instead
                 ),
                 "num_beams": args.num_beams
             }
         else:
             eval_kwargs = {}
 
-        eval_metrics = trainer.evaluate(
+        metrics = trainer.evaluate(
             eval_dataset,
             metric_key_prefix="eval",
             **eval_kwargs
         )
-        eval_metrics["eval_samples"] = max_eval_samples
-        trainer.log_metrics("eval", eval_metrics)
+
+        metrics["eval_samples"] = max_eval_samples
+
+        trainer.log_metrics("eval", metrics)
+        #trainer.save_metrics("eval", metrics)
 
         if args.task_type == "SEQ_CLS" and args.dataset == "mnli":
             raise NotImplementedError("Have not added mismatched evaluation yet")
@@ -225,12 +250,16 @@ def run_single_experiment(args):
         )
 
         if args.task_type == "QUESTION_ANS":
+            # Unprocessed test dataset
             test_samples = problem.test_dataset
+
             if len(test_samples) > max_test_samples:
                 test_samples = test_samples.select(range(max_test_samples))
+
             predict_kwargs = {"test_samples": test_samples}
         elif args.task_type == "SEQ_2_SEQ_LM":
             predict_kwargs = {
+                #~ mb fix, see comments above for eval_kwargs
                 "max_length": (
                     training_args.generation_max_length
                     if training_args.generation_max_length is not None
@@ -247,13 +276,16 @@ def run_single_experiment(args):
             **predict_kwargs
         )
 
-        predict_metrics = results.metrics
-        predict_metrics["predict_samples"] = max_test_samples
-        trainer.log_metrics("predict", predict_metrics)
+        metrics = results.metrics
+        metrics["predict_samples"] = max_test_samples
+
+        trainer.log_metrics("predict", metrics)
+        #trainer.save_metrics("predict", metrics)
 
         if args.task_type == "SEQ_CLS" and args.dataset == "mnli":
             raise NotImplementedError("Have not added mismatched prediction yet")
 
+        #~ only used for nlg, maybe incorporate it into eval/predict methods like in squad?
         if trainer.is_world_process_zero() and args.task_type == "SEQ_2_SEQ_LM" and args.predict_with_generate:
             preds = tokenizer.batch_decode(
                 results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
@@ -263,19 +295,7 @@ def run_single_experiment(args):
             with open(output_file, 'w') as output:
                 output.write("\n".join(preds))
 
-    # Освобождение памяти между trial
-    del trainer, model, optimizer
-    torch.cuda.empty_cache()
-
-    return {
-        "train_metrics": train_metrics,
-        "eval_metrics": eval_metrics,
-        "predict_metrics": predict_metrics,
-    }
-
-def main(args):
-    return run_single_experiment(args)
-
 
 if __name__ == '__main__':
+    #~ maybe add warning that args is None
     main(None)

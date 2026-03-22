@@ -10,7 +10,6 @@ from utils import get_run_name
 from libsvm import main_libsvm
 from cv import main_cv
 from llm import main_llm
-from llm.hpo_optuna import run_optuna_hpo
 
 if __name__ == "__main__":
     if torch.cuda.is_available():
@@ -23,10 +22,7 @@ if __name__ == "__main__":
     args.run_name = get_run_name(args, parser)
 
     if args.dataset.lower() in main_llm.DATASETS:
-        if getattr(args, "do_hpo", False):
-          run_optuna_hpo(args)
-        else:
-          main_llm.main(args)
+        main_llm.main(args)
     elif args.dataset.lower() in main_libsvm.DATASETS:
         main_libsvm.main(args, parser)
     elif args.dataset.lower() in main_cv.DATASETS:
