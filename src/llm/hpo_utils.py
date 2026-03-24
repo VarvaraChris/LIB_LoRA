@@ -21,7 +21,7 @@ def suggest_hparams(trial, args):
     Подбираем только lr и lora_r.
     Остальное фиксируется через args.
     """
-    lr = trial.suggest_float("lr", 1e-6, 1e-3, log=True)
+    lr = trial.suggest_float("lr", 1e-6, 1e-2, log=True)
     lora_r = trial.suggest_categorical("lora_r", [4, 8, 16, 32])
 
     return {

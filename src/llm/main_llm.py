@@ -40,8 +40,8 @@ def get_peft_config(args, target_modules):
         peft_config = peft.LoKrConfig(
             task_type=args.task_type,
             r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
+            alpha=args.lora_alpha,
+            rank_dropout=args.lora_dropout,
             target_modules=target_modules,
         )
     elif args.ft_strategy == "LoHA":
@@ -212,8 +212,8 @@ def run_single_experiment(args):
         eval_metrics["eval_samples"] = max_eval_samples
         trainer.log_metrics("eval", eval_metrics)
 
-        if args.task_type == "SEQ_CLS" and args.dataset == "mnli":
-            raise NotImplementedError("Have not added mismatched evaluation yet")
+        #if args.task_type == "SEQ_CLS" and args.dataset == "mnli":
+        #    raise NotImplementedError("Have not added mismatched evaluation yet")
 
     if args.do_predict:
         print("~~~~~~~~~~~~~~~ PREDICTING ~~~~~~~~~~~~~~~")
