@@ -64,7 +64,7 @@ def run_optuna_hpo(args):
     ensure_dir(output_dir)
 
     study_name = build_study_name(args)
-    db_path = os.path.join(output_dir, "optuna_trials.db")
+    db_path = os.path.join(output_dir, f"{study_name}_optuna_trials.db")
     storage = f"sqlite:///{db_path}"
 
     study = optuna.create_study(
