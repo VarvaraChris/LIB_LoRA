@@ -157,8 +157,8 @@ def get_peft_arguments(args):
     elif args.ft_strategy == "LoHA":
         peft_args = peft.LoHaConfig(
             r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
+            alpha=args.lora_alpha,
+            rank_dropout=args.lora_dropout,
         )
     elif args.ft_strategy == "VERA":
         peft_args = peft.VeraConfig(r=args.lora_r, vera_dropout=args.lora_dropout)

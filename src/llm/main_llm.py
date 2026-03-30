@@ -48,8 +48,8 @@ def get_peft_config(args, target_modules):
         peft_config = peft.LoHaConfig(
             task_type=args.task_type,
             r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
+            alpha=args.lora_alpha,
+            rank_dropout=args.lora_dropout,
             target_modules=target_modules,
         )
     elif args.ft_strategy == "VERA":
