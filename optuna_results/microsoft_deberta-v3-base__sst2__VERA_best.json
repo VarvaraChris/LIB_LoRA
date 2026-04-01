@@ -1,0 +1,22 @@
+{
+  "study_name": "microsoft_deberta-v3-base__sst2__VERA",
+  "best_value": 0.9575688073394495,
+  "best_params": {
+    "lr": 0.004181086247890641,
+    "lora_r": 32
+  },
+  "best_trial_number": 7,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.14397981762886047,
+      "eval_accuracy": 0.9575688073394495,
+      "eval_runtime": 2.8633,
+      "eval_samples_per_second": 304.543,
+      "eval_steps_per_second": 9.779,
+      "epoch": 14.245130641330165,
+      "eval_samples": 872
+    },
+    "lora_r": 32,
+    "lr": 0.004181086247890641
+  }
+}

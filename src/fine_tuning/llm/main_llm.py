@@ -233,7 +233,7 @@ class Finetuner:
             num_train_epochs=self.args.n_epoches_train,
             max_steps=self.args.max_steps_train,
             logging_steps=self.args.logging_steps,
-            eval_strategy="no",
+            eval_strategy="steps" if args.eval_steps else args.eval_strategy,
             eval_steps=self.args.eval_steps,
             save_strategy=self.args.save_strategy,
             save_steps=self.args.save_steps,
