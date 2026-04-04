@@ -21,7 +21,6 @@ if __name__ == "__main__":
         print("~~~~~~~~~~~~~~~ USING CPU ~~~~~~~~~~~~~~~")
     args, parser = parse_args()
     args.run_name = get_run_name(args, parser)
-
     if args.dataset.lower() in main_llm.DATASETS:
         if getattr(args, "do_hpo", False):
           run_optuna_hpo(args)

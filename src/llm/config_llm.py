@@ -291,20 +291,38 @@ def set_arguments_llm(parser, use_seq2seq_args, use_question_ans_args):
     )
     parser.add_argument(
         "--eval_strategy",
-        "--save_strategy",
-        "--val_strategy",
         "--evaluation_strategy",
+        dest="eval_strategy",
+        default="steps",
+        type=str,
+        choices=["no", "steps", "epoch"],
+        help="Strategy to evaluate model",
+    )
+    
+    parser.add_argument(
+        "--save_strategy",
+        dest="save_strategy",
         default="no",
         type=str,
+        choices=["no", "steps", "epoch"],
         help="Strategy to save model checkpoints",
     )
+    
     parser.add_argument(
         "--eval_steps",
-        "--save_steps",
         "--val_steps",
+        dest="eval_steps",
         default=None,
         type=int,
-        help="Number of steps between saves (if save_strategy==steps)",
+        help="Number of steps between evaluations when eval_strategy='steps'",
+    )
+    
+    parser.add_argument(
+        "--save_steps",
+        dest="save_steps",
+        default=500,
+        type=int,
+        help="Number of steps between saves when save_strategy='steps'",
     )
     parser.add_argument(
         "--logging_steps",

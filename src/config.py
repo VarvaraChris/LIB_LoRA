@@ -45,7 +45,6 @@ def parse_args():
     )
     args1, _ = parser1.parse_known_args()
     parser = parser1
-
     ### Training Arguments
     parser.add_argument(
         "--batch_size",
@@ -160,7 +159,6 @@ def parse_args():
         )
 
     args, unparsed_args = parser.parse_known_args()
-
     ##### Warnings #####
     if args1.config_name is not None:
         path = f"./src/{problem}/configs/{args1.config_name}.json"
@@ -197,5 +195,4 @@ def parse_args():
         line = "wandb and verbose set to False, so we set verbose to True"
         print(colored(line, "yellow"))
         args.verbose = True
-
     return args, parser

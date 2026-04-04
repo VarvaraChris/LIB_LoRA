@@ -279,6 +279,7 @@ def set_arguments_ft(parser):
         default="epoch",
         type=str,
         help="Strategy to evaluate model",
+        choices = ["no", "steps", "epoch"],
     )
     parser.add_argument(
         "--eval_steps",
