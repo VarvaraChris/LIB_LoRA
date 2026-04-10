@@ -374,7 +374,19 @@ def set_arguments_llm(parser, use_seq2seq_args, use_question_ans_args):
         type=float,
         help="Dropout of LoRA and LoRA-like PEFT adapters",
     )
-
+    parser.add_argument(
+        "--gralora_k",
+        default=2,
+        type=int,
+        help="Number of GraLoRA sub-blocks",
+    )
+    
+    parser.add_argument(
+        "--gralora_hybrid_r",
+        default=0,
+        type=int,
+        help="Optional rank for hybrid GraLoRA + vanilla LoRA",
+    )
     # Override some default values from the main parser
     parser.set_defaults(batch_size=8, n_epochs_train=3, eval_runs=1, dtype="float16")
 

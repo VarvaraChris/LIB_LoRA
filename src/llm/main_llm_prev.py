@@ -64,6 +64,7 @@ def get_peft_config(args, target_modules):
             task_type=args.task_type,
             target_r=args.lora_r,
             target_modules=target_modules,
+            total_step = args.max_steps_train,
         )
     elif args.ft_strategy == "DoRA":
         peft_config = peft.LoraConfig(

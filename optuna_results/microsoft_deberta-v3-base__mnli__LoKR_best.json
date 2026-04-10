@@ -1,0 +1,22 @@
+{
+  "study_name": "microsoft_deberta-v3-base__mnli__LoKR",
+  "best_value": 0.8798777381558839,
+  "best_params": {
+    "lr": 0.004949841459204398,
+    "lora_r": 8
+  },
+  "best_trial_number": 10,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.3209371268749237,
+      "eval_accuracy": 0.8798777381558839,
+      "eval_runtime": 150.9833,
+      "eval_samples_per_second": 65.007,
+      "eval_steps_per_second": 2.033,
+      "epoch": 0.48891786179921776,
+      "eval_samples": 9815
+    },
+    "lora_r": 8,
+    "lr": 0.004949841459204398
+  }
+}

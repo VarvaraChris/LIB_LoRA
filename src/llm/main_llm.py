@@ -64,6 +64,7 @@ def get_peft_config(args, target_modules):
             task_type=args.task_type,
             target_r=args.lora_r,
             target_modules=target_modules,
+            total_step = args.max_steps_train,
         )
     elif args.ft_strategy == "DoRA":
         peft_config = peft.LoraConfig(
@@ -90,6 +91,14 @@ def get_peft_config(args, target_modules):
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             use_weight_lora=True,
+            target_modules=target_modules,
+        )
+    elif args.ft_strategy == "GraLoRA":
+        peft_config = peft.GraloraConfig(
+            task_type=args.task_type,
+            r=args.lora_r,
+            alpha=args.lora_alpha,
+            gralora_dropout=args.lora_dropout,
             target_modules=target_modules,
         )
     elif args.ft_strategy == "Full":

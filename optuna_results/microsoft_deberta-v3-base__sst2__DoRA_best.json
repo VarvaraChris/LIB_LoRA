@@ -1,0 +1,22 @@
+{
+  "study_name": "microsoft_deberta-v3-base__sst2__DoRA",
+  "best_value": 0.9564220183486238,
+  "best_params": {
+    "lr": 0.0006287640078562554,
+    "lora_r": 8
+  },
+  "best_trial_number": 0,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.14952987432479858,
+      "eval_accuracy": 0.9564220183486238,
+      "eval_runtime": 5.6638,
+      "eval_samples_per_second": 153.96,
+      "eval_steps_per_second": 4.944,
+      "epoch": 2.8494061757719713,
+      "eval_samples": 872
+    },
+    "lora_r": 8,
+    "lr": 0.0006287640078562554
+  }
+}
