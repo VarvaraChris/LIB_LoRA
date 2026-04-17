@@ -1,22 +1,22 @@
 {
   "study_name": "microsoft_deberta-v3-base__mnli__ADALoRA",
-  "best_value": 0.8912888436067244,
+  "best_value": 0.8905756495160468,
   "best_params": {
-    "lr": 0.007085453313848458,
-    "lora_r": 8
+    "lr": 0.007397505954950985,
+    "lora_r": 16
   },
   "best_trial_number": 10,
   "best_trial_user_attrs": {
     "eval_metrics": {
-      "eval_loss": 0.2922206223011017,
-      "eval_accuracy": 0.8912888436067244,
-      "eval_runtime": 50.5508,
-      "eval_samples_per_second": 194.161,
-      "eval_steps_per_second": 6.073,
+      "eval_loss": 0.29099801182746887,
+      "eval_accuracy": 0.8905756495160468,
+      "eval_runtime": 165.9889,
+      "eval_samples_per_second": 59.13,
+      "eval_steps_per_second": 1.85,
       "epoch": 0.48891786179921776,
       "eval_samples": 9815
     },
-    "lora_r": 8,
-    "lr": 0.007085453313848458
+    "lora_r": 16,
+    "lr": 0.007397505954950985
   }
 }

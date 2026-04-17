@@ -1,0 +1,22 @@
+{
+  "study_name": "microsoft_deberta-v3-base__mnli__GraLoRA",
+  "best_value": 0.8967906265919511,
+  "best_params": {
+    "lr": 0.0009849668830292314,
+    "lora_r": 16
+  },
+  "best_trial_number": 4,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.2800625264644623,
+      "eval_accuracy": 0.8967906265919511,
+      "eval_runtime": 87.805,
+      "eval_samples_per_second": 111.782,
+      "eval_steps_per_second": 3.496,
+      "epoch": 0.48891786179921776,
+      "eval_samples": 9815
+    },
+    "lora_r": 16,
+    "lr": 0.0009849668830292314
+  }
+}

@@ -43,7 +43,7 @@ def print_trainable_params(model, verbose=True):
 
 
 def count_atapters(model, peft_type):
-    if peft_type in ["LoRA", "ADALoRA", "DoRA", "rsLoRA", "WeightLoRA", "RandLoRA", "GraLoRA"]:
+    if peft_type in ["LoRA", "ADALoRA", "DoRA", "rsLoRA", "WeightLoRA", "RandLoRA", "GraLoRA", "DeLoRA", "RandLoRA"]:
         adapter_name = "lora_A"
     elif peft_type == "LoKR":
         adapter_name = "lokr_w1"
@@ -191,6 +191,18 @@ def get_peft_arguments(args):
             r=args.lora_r,
             alpha=args.lora_alpha,
             gralora_dropout=args.lora_dropout,
+        )
+    elif args.ft_strategy == "DeLoRA":
+        peft_args = peft.DeloraConfig(
+            r=args.lora_r,
+            delora_lambda=args.delora_lambda,
+            module_dropout=args.lora_dropout,
+        )
+    elif args.ft_strategy == "RandLoRA":
+        peft_args = peft.RandLoraConfig(
+            r=args.lora_r,
+            randlora_alpha=args.lora_alpha,
+            randlora_dropout=args.lora_dropout,
         )
     elif args.ft_strategy == "Full":
         return None

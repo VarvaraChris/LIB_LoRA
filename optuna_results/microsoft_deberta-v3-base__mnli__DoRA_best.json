@@ -1,22 +1,22 @@
 {
   "study_name": "microsoft_deberta-v3-base__mnli__DoRA",
-  "best_value": 0.8954661232806929,
+  "best_value": 0.890983188996434,
   "best_params": {
-    "lr": 0.0004716268619817386,
-    "lora_r": 32
+    "lr": 0.0004490839516995782,
+    "lora_r": 8
   },
-  "best_trial_number": 0,
+  "best_trial_number": 11,
   "best_trial_user_attrs": {
     "eval_metrics": {
-      "eval_loss": 0.2786654531955719,
-      "eval_accuracy": 0.8954661232806929,
-      "eval_runtime": 38.214,
-      "eval_samples_per_second": 256.843,
-      "eval_steps_per_second": 8.034,
+      "eval_loss": 0.28657329082489014,
+      "eval_accuracy": 0.890983188996434,
+      "eval_runtime": 61.8727,
+      "eval_samples_per_second": 158.632,
+      "eval_steps_per_second": 4.962,
       "epoch": 0.48891786179921776,
       "eval_samples": 9815
     },
-    "lora_r": 32,
-    "lr": 0.0004716268619817386
+    "lora_r": 8,
+    "lr": 0.0004490839516995782
   }
 }

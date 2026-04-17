@@ -1,0 +1,24 @@
+{
+  "study_name": "microsoft_deberta-v3-base__stsb__RandLoRA",
+  "best_value": 0.9074297694357307,
+  "best_params": {
+    "lr": 0.00019910374117198734,
+    "lora_r": 8
+  },
+  "best_trial_number": 10,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.44832852482795715,
+      "eval_pearson": 0.9074297694357307,
+      "eval_spearmanr": 0.9071668138512297,
+      "eval_combined_score": 0.9072982916434802,
+      "eval_runtime": 15.5123,
+      "eval_samples_per_second": 96.698,
+      "eval_steps_per_second": 3.03,
+      "epoch": 33.333333333333336,
+      "eval_samples": 1500
+    },
+    "lora_r": 8,
+    "lr": 0.00019910374117198734
+  }
+}

@@ -387,6 +387,13 @@ def set_arguments_llm(parser, use_seq2seq_args, use_question_ans_args):
         type=int,
         help="Optional rank for hybrid GraLoRA + vanilla LoRA",
     )
+
+    parser.add_argument(
+        "--delora_lambda",
+        default=15,
+        type=float,
+        help="Initial norm bound for DeLoRA adapters",
+    )
     # Override some default values from the main parser
     parser.set_defaults(batch_size=8, n_epochs_train=3, eval_runs=1, dtype="float16")
 

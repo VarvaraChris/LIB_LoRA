@@ -101,6 +101,22 @@ def get_peft_config(args, target_modules):
             gralora_dropout=args.lora_dropout,
             target_modules=target_modules,
         )
+    elif args.ft_strategy == "DeLoRA":
+        peft_config = peft.DeloraConfig(
+            task_type=args.task_type,
+            r=args.lora_r,
+            delora_lambda=args.delora_lambda,
+            module_dropout=args.lora_dropout,
+            target_modules=target_modules,
+        )
+    elif args.ft_strategy == "RandLoRA":
+        peft_config = peft.RandLoraConfig(
+            task_type=args.task_type,
+            r=args.lora_r,
+            randlora_alpha=args.lora_alpha,
+            randlora_dropout=args.lora_dropout,
+            target_modules=target_modules,
+        )
     elif args.ft_strategy == "Full":
         peft_config = None
     else:
