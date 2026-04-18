@@ -394,6 +394,12 @@ def set_arguments_llm(parser, use_seq2seq_args, use_question_ans_args):
         type=float,
         help="Initial norm bound for DeLoRA adapters",
     )
+    parser.add_argument(
+        "--target_modules_override",
+        default=None,
+        type=str,
+        help="Comma-separated list of target modules to override model defaults for PEFT adapters",
+    )
     # Override some default values from the main parser
     parser.set_defaults(batch_size=8, n_epochs_train=3, eval_runs=1, dtype="float16")
 

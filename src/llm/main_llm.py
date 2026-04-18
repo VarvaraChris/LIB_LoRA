@@ -27,6 +27,11 @@ from optimizers.main import get_optimizer
 
 DATASETS = CAUSAL_LM_DATASETS + GLUE_DATASETS + SQUAD_DATASETS + NLG_DATASETS
 
+def resolve_target_modules(args, framework):
+    if getattr(args, "target_modules_override", None):
+        return [module.strip() for module in args.target_modules_override.split(",") if module.strip()]
+    return framework.get_target_modules()
+
 def get_peft_config(args, target_modules):
     if args.ft_strategy == "LoRA":
         peft_config = peft.LoraConfig(
@@ -165,7 +170,8 @@ def run_single_experiment(args):
     data_collator = problem.get_data_collator(model, tokenizer)
     compute_metrics = problem.get_metrics_function(tokenizer)
 
-    peft_config = get_peft_config(args, framework.get_target_modules())
+    target_modules = resolve_target_modules(args, framework)
+    peft_config = get_peft_config(args, target_modules)
 
     if peft_config is not None:
         model = peft.get_peft_model(model, peft_config)

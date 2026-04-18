@@ -135,7 +135,12 @@ def parse_args():
         )
     parser.add_argument("--do_hpo", action="store_true")
     parser.add_argument("--hpo_n_trials", type=int, default=12)
-    parser.add_argument("--hpo_storage_dir", type=str, default="./optuna_results")
+    parser.add_argument("--hpo_storage_dir", type=str, default="./optuna_results_exp2")
+    parser.add_argument(
+        "--hpo_lr_only",
+        action="store_true",
+        help="Tune only learning rate in HPO and keep lora_r fixed",
+    )
     ##### Problem Specific Arguments #####
     dataset = args1.dataset.lower()
     if dataset in LLM_DATASETS:

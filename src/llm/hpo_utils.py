@@ -22,11 +22,13 @@ def suggest_hparams(trial, args):
     Остальное фиксируется через args.
     """
     lr = trial.suggest_float("lr", 1e-6, 1e-2, log=True)
-    lora_r = trial.suggest_categorical("lora_r", [4, 8, 16, 32])
+    if getattr(args, "hpo_lr_only", False):
+        lora_r = args.lora_r
+    else:
+        lora_r = trial.suggest_categorical("lora_r", [4, 8, 16, 32])
 
     return {
         "lr": lr,
-        "lora_r": lora_r,
     }
 
 

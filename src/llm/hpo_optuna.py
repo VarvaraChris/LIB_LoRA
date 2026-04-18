@@ -25,7 +25,8 @@ def objective_factory(base_args):
         #Предлагаем новые гиперпараметры
         sampled = suggest_hparams(trial, args)
         args.lr = sampled["lr"]
-        args.lora_r = sampled["lora_r"]
+        if "lora_r" in sampled:
+            args.lora_r = sampled["lora_r"]
 
         logger.info(
             f"[Trial {trial.number}] dataset={args.dataset}, "
@@ -60,7 +61,7 @@ def objective_factory(base_args):
 
 
 def run_optuna_hpo(args):
-    output_dir = getattr(args, "hpo_storage_dir", "./optuna_results")
+    output_dir = getattr(args, "hpo_storage_dir", "./optuna_results_exp2")
     ensure_dir(output_dir)
 
     study_name = build_study_name(args)
