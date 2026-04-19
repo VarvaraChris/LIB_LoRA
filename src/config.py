@@ -135,7 +135,6 @@ def parse_args():
         )
     parser.add_argument("--do_hpo", action="store_true")
     parser.add_argument("--hpo_n_trials", type=int, default=12)
-    parser.add_argument("--hpo_storage_dir", type=str, default="./optuna_results_exp2")
     parser.add_argument(
         "--hpo_lr_only",
         action="store_true",

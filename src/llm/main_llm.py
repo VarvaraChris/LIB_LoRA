@@ -182,7 +182,7 @@ def run_single_experiment(args):
     training_args = problem.get_training_args()
     optimizer = get_optimizer(args, model)
 
-    trainer = AutoTrainer(
+    trainer_kwargs = dict(
         model=model,
         args=training_args,
         train_dataset=(train_dataset if args.do_train else None),
@@ -192,6 +192,11 @@ def run_single_experiment(args):
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
+    if args.task_type == "QUESTION_ANS":
+        trainer_kwargs["eval_examples"] = problem.eval_dataset
+        trainer_kwargs["test_examples"] = problem.test_dataset
+
+    trainer = AutoTrainer(**trainer_kwargs)
 
     train_metrics = {}
     eval_metrics = {}

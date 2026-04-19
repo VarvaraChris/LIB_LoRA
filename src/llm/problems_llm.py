@@ -12,9 +12,10 @@ from tqdm.auto import tqdm
 import os  # for postprocess_qa_predictions, mb remove
 import nltk  # for nlg
 import json  # for nlg
+from pathlib import Path
 from dataclasses import dataclass, field  # for qa custom training args class
 
-from datasets import load_dataset, load_metric
+from datasets import load_dataset, load_metric, Dataset as HFDataset
 from transformers import (
     PreTrainedTokenizerFast,
     Trainer,
@@ -28,7 +29,25 @@ from transformers import (
     EvalPrediction,
 )
 
-CAUSAL_LM_DATASETS = ["gsm8k", "math_qa"]
+CAUSAL_LM_DATASETS = [
+    "aqua",
+    "gsm8k",
+    "commonsensqa",
+    "boolq",
+    "addsub",
+    "multiarith",
+    "singleeq",
+    "strategyqa",
+    "svamp",
+    "bigbench_date",
+    "object_tracking",
+    "coin_flip",
+    "last_letters",
+    "math_qa",
+    "mathqa",
+    "hella_swag",
+    "arc_challenge",
+]
 GLUE_DATASETS = ["cola", "mnli", "mrpc", "qnli", "qqp", "rte", "sst2", "stsb", "wnli"]
 SQUAD_DATASETS = ["squad", "squad_v2"]
 NLG_DATASETS = [
@@ -193,13 +212,92 @@ class CausalLM_Problem(Problem):
 
     # Intentionally does nothing...
     def process_dataset(self, tokenizer, process_function):
-        return super().process_dataset(tokenizer, process_function)
+        args = self.args
+        train_dataset = None
+        if args.do_train:
+            train_dataset = self.train_dataset
+            if args.max_train_samples is not None:
+                train_size = len(train_dataset)
+                if args.max_train_samples <= train_size:
+                    train_dataset = train_dataset.select(range(args.max_train_samples))
+                else:
+                    logger.warning(
+                        f"The max_train_samples={args.max_train_samples} is larger than the "
+                        f"size of the training dataset train_size={train_size}. Using all samples."
+                    )
+
+            process_fn = partial(process_function, tokenizer=tokenizer, args=args, is_eval=False)
+            train_dataset = train_dataset.map(
+                process_fn,
+                batched=True,
+                remove_columns=train_dataset.column_names,
+                num_proc=args.preprocessing_num_workers,
+                load_from_cache_file=(not args.overwrite_cache),
+                desc="Running tokenizer on train dataset",
+            )
+            if args.max_train_samples is not None and len(train_dataset) > args.max_train_samples:
+                train_dataset = train_dataset.select(range(args.max_train_samples))
+
+        eval_dataset = None
+        if args.do_eval:
+            eval_dataset = self.eval_dataset
+            if args.max_eval_samples is not None:
+                eval_size = len(eval_dataset)
+                if args.max_eval_samples <= eval_size:
+                    eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+                else:
+                    logger.warning(
+                        f"The max_eval_samples={args.max_eval_samples} is larger than the "
+                        f"size of the validation dataset eval_size={eval_size}. Using all samples."
+                    )
+
+            process_fn = partial(process_function, tokenizer=tokenizer, args=args, is_eval=True)
+            eval_dataset = eval_dataset.map(
+                process_fn,
+                batched=True,
+                remove_columns=eval_dataset.column_names,
+                num_proc=args.preprocessing_num_workers,
+                load_from_cache_file=(not args.overwrite_cache),
+                desc="Running tokenizer on validation dataset",
+            )
+            if args.max_eval_samples is not None and len(eval_dataset) > args.max_eval_samples:
+                eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+
+        test_dataset = None
+        if args.do_predict:
+            test_dataset = self.test_dataset
+            if args.max_test_samples is not None:
+                test_size = len(test_dataset)
+                if args.max_test_samples <= test_size:
+                    test_dataset = test_dataset.select(range(args.max_test_samples))
+                else:
+                    logger.warning(
+                        f"The max_test_samples={args.max_test_samples} is larger than the "
+                        f"size of the testing dataset test_size={test_size}. Using all samples."
+                    )
+
+            process_fn = partial(process_function, tokenizer=tokenizer, args=args, is_eval=True)
+            test_dataset = test_dataset.map(
+                process_fn,
+                batched=True,
+                remove_columns=test_dataset.column_names,
+                num_proc=args.preprocessing_num_workers,
+                load_from_cache_file=(not args.overwrite_cache),
+                desc="Running tokenizer on test dataset",
+            )
+            if args.max_test_samples is not None and len(test_dataset) > args.max_test_samples:
+                test_dataset = test_dataset.select(range(args.max_test_samples))
+
+        return train_dataset, eval_dataset, test_dataset
 
     def get_trainer_class(self):
-        return Trainer
+        return CausalLMGenerationTrainer
 
     def get_training_args(self):
         args = self.args
+        metric_for_best_model = (
+            "accuracy" if args.metric_for_best_model == "loss" else args.metric_for_best_model
+        )
 
         training_args = TrainingArguments(
             do_train=args.do_train,
@@ -230,8 +328,8 @@ class CausalLM_Problem(Problem):
             run_name=args.run_name,
             report_to=["wandb" if args.wandb else "none"],
             load_best_model_at_end=(args.eval_strategy != "no"),
-            metric_for_best_model=args.metric_for_best_model,
-            greater_is_better=(args.metric_for_best_model not in ["loss"]), #mb extend
+            metric_for_best_model=metric_for_best_model,
+            greater_is_better=(metric_for_best_model not in ["loss"]), #mb extend
         )
 
         return training_args
@@ -344,6 +442,281 @@ class MathQA_Problem(CausalLM_Problem):
             )
 
         return super().process_dataset(tokenizer, process_function)
+
+def _normalize_causal_text(text):
+    return str(text).replace(" ", "").replace("\n", "").strip()
+
+
+def _dataset_from_pairs(pairs):
+    if not pairs:
+        return None
+    questions, responses = zip(*pairs)
+    return HFDataset.from_dict({
+        "question": list(questions),
+        "response": [str(answer) for answer in responses],
+    })
+
+
+def _resolve_dataset_path(args, relative_path):
+    if args.dataset_path is not None:
+        return args.dataset_path
+    return str(Path(args.data_path) / relative_path)
+
+
+def _load_json(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def _load_jsonl(path):
+    decoder = json.JSONDecoder()
+    with open(path) as f:
+        return [decoder.raw_decode(line)[0] for line in f if line.strip()]
+
+
+def _split_pairs(pairs, ratio):
+    split_idx = int(len(pairs) * ratio)
+    return pairs[:split_idx], pairs[split_idx:]
+
+
+class PromptBasedCausalLM_Problem(CausalLM_Problem):
+
+    intro_blurb = "write answer first."
+
+    def build_splits(self):
+        raise NotImplementedError("Implement this method in a successor class")
+
+    def load_dataset(self):
+        train_pairs, eval_pairs, test_pairs = self.build_splits()
+        self.train_dataset = _dataset_from_pairs(train_pairs)
+        self.eval_dataset = _dataset_from_pairs(eval_pairs)
+        self.test_dataset = _dataset_from_pairs(test_pairs)
+
+    def process_dataset(self, tokenizer):
+        intro_blurb = self.intro_blurb
+
+        def process_function(samples, tokenizer, args, is_eval):
+            batch_size = len(samples["question"])
+
+            if is_eval:
+                return {
+                    "text": [
+                        f"{intro_blurb} {samples['question'][i]}. Answer:"
+                        for i in range(batch_size)
+                    ],
+                    "answer": [str(samples["response"][i]) for i in range(batch_size)],
+                }
+
+            inputs = [
+                f"{intro_blurb} {samples['question'][i]}. Answer: {samples['response'][i]}"
+                for i in range(batch_size)
+            ]
+            max_len = min(args.max_seq_length, tokenizer.model_max_length)
+            return tokenizer(inputs, max_length=max_len, truncation=True)
+
+        return super().process_dataset(tokenizer, process_function)
+
+
+class AQUA_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only the letter choice, write answer first."
+
+    def build_splits(self):
+        path = _resolve_dataset_path(self.args, "AQuA/train.json")
+        items = _load_jsonl(path)
+        pairs = []
+        for item in items:
+            choice = "(" + "(".join(item["options"])
+            choice = choice.replace("(", " (").replace(")", ") ")
+            question = item["question"].strip() + " Answer Choices:" + choice
+            pairs.append((question, item["correct"]))
+        train_pairs, eval_pairs = _split_pairs(pairs, 0.8)
+        return train_pairs, eval_pairs, None
+
+
+class CommonsenseQA_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only the letter choice, write answer first."
+
+    def build_splits(self):
+        train_path = _resolve_dataset_path(self.args, "CommonsenseQA/train_rand_split.jsonl")
+        eval_path = str(Path(self.args.data_path) / "CommonsenseQA/dev_rand_split.jsonl")
+        train_items = _load_jsonl(train_path)
+        eval_items = _load_jsonl(eval_path) if os.path.exists(eval_path) else []
+
+        def convert(items):
+            pairs = []
+            for item in items:
+                choice = "Answer Choices:"
+                for c in item["question"]["choices"]:
+                    choice += f" ({c['label']}) {c['text']}"
+                question = item["question"]["stem"].strip() + " " + choice
+                pairs.append((question, item["answerKey"]))
+            return pairs
+
+        train_pairs = convert(train_items)
+        eval_pairs = convert(eval_items)
+        if not eval_pairs:
+            train_pairs, eval_pairs = _split_pairs(train_pairs, 0.8)
+        return train_pairs, eval_pairs, None
+
+
+class BoolQ_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only True or False, write answer first."
+
+    def build_splits(self):
+        train_data, eval_data = load_dataset("google/boolq", split=["train", "validation"])
+
+        def convert(dataset_split):
+            pairs = []
+            for item in dataset_split:
+                question = f"{item['question']}. [Answer options]: True or False"
+                pairs.append((question, str(item["answer"])))
+            return pairs
+
+        return convert(train_data), convert(eval_data), None
+
+
+class Arithmetic_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only numbers, write answer first."
+
+    dataset_to_relative_path = {
+        "addsub": "AddSub/AddSub.json",
+        "multiarith": "MultiArith/MultiArith.json",
+        "singleeq": "SingleEq/questions.json",
+    }
+
+    def build_splits(self):
+        path = _resolve_dataset_path(self.args, self.dataset_to_relative_path[self.args.dataset])
+        items = _load_json(path)
+        pairs = []
+        for item in items:
+            answer = str(item["lSolutions"][0])
+            if answer.endswith(".0"):
+                answer = answer[:-2]
+            pairs.append((item["sQuestion"].strip(), answer))
+        train_pairs, eval_pairs = _split_pairs(pairs, 0.8)
+        return train_pairs, eval_pairs, None
+
+
+class StrategyQA_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only yes or no, write answer first."
+
+    def build_splits(self):
+        path = _resolve_dataset_path(self.args, "StrategyQA/strategyqa_train.json")
+        items = _load_json(path)["examples"]
+        pairs = []
+        for item in items:
+            answer = "yes" if int(item["target_scores"]["Yes"]) == 1 else "no"
+            pairs.append((item["input"].strip(), answer))
+        train_pairs, eval_pairs = _split_pairs(pairs, 0.7)
+        return train_pairs, eval_pairs, None
+
+
+class SVAMP_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only numbers, write answer first."
+
+    def build_splits(self):
+        path = _resolve_dataset_path(self.args, "SVAMP/SVAMP.json")
+        items = _load_json(path)
+        pairs = []
+        for item in items:
+            answer = str(item["Answer"])
+            if answer.endswith(".0"):
+                answer = answer[:-2]
+            question = item["Body"].strip() + " " + item["Question"].strip()
+            pairs.append((question, answer))
+        train_pairs, eval_pairs = _split_pairs(pairs, 0.7)
+        return train_pairs, eval_pairs, None
+
+
+class BigBench_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "answer only the letter choice, write answer first."
+
+    dataset_to_relative_path = {
+        "bigbench_date": "BigBench/date_understanding.json",
+        "object_tracking": "BigBench/tracking_shuffled_objects.json",
+    }
+
+    def build_splits(self):
+        path = _resolve_dataset_path(self.args, self.dataset_to_relative_path[self.args.dataset])
+        items = _load_json(path)["examples"]
+        pairs = []
+
+        for item in items:
+            question = item["input"].strip()
+            if self.args.dataset == "bigbench_date":
+                choice_index = ["A", "B", "C", "D", "E", "F"]
+                choice_dict = shuffleDict(item["target_scores"])
+                choice = "Answer Choices:"
+            else:
+                choice_index = ["A", "B", "C"]
+                choice_dict = item["target_scores"]
+                choice = "\nWhich choice is true ? Answer Choices:"
+
+            answer = None
+            for i, (key, value) in enumerate(choice_dict.items()):
+                choice += f" ({choice_index[i]}) {key}"
+                if value == 1:
+                    answer = choice_index[i]
+            pairs.append((question + " " + choice, answer))
+
+        train_pairs, eval_pairs = _split_pairs(pairs, 0.8)
+        return train_pairs, eval_pairs, None
+
+
+class CoinFlipLastLetters_Problem(PromptBasedCausalLM_Problem):
+
+    def build_splits(self):
+        relative_path = (
+            "coin_flip/coin_flip.json" if self.args.dataset == "coin_flip"
+            else "BigBench/last_letters.json"
+        )
+        path = _resolve_dataset_path(self.args, relative_path)
+        items = _load_json(path)["examples"]
+        pairs = [(item["question"], item["answer"]) for item in items]
+        train_pairs, eval_pairs = _split_pairs(pairs, 0.7)
+        return train_pairs, eval_pairs, None
+
+    @property
+    def intro_blurb(self):
+        if self.args.dataset == "coin_flip":
+            return "answer only yes or no, write answer first."
+        return "answer only the letters, write answer first."
+
+
+class HellaSwag_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "Choose the correct ending, write only it, word by word."
+
+    def build_splits(self):
+        train_data, eval_data = load_dataset("Rowan/hellaswag", split=["train", "validation"])
+
+        def convert(dataset_split):
+            pairs = []
+            for item in dataset_split:
+                context = item["ctx"].replace("\n", "").replace("\\n", "")
+                options = "; ".join(item["endings"])
+                answer = item["endings"][int(item["label"])]
+                pairs.append((context + f"... [Ending options]: {options}.", answer))
+            return pairs
+
+        return convert(train_data), convert(eval_data), None
+
+
+class ARCChallenge_Problem(PromptBasedCausalLM_Problem):
+    intro_blurb = "Choose the correct answer, write only it, word by word."
+
+    def build_splits(self):
+        train_data, eval_data = load_dataset("allenai/ai2_arc", "ARC-Challenge", split=["train", "test"])
+
+        def convert(dataset_split):
+            pairs = []
+            for item in dataset_split:
+                answer = dict(zip(item["choices"]["label"], item["choices"]["text"])).get(item["answerKey"])
+                options = "; ".join(item["choices"]["text"])
+                pairs.append((item["question"] + f" [Answer options]: {options}.", answer))
+            return pairs
+
+        return convert(train_data), convert(eval_data), None
+
 
 
 # FIX: add label_to_id to process_function
@@ -598,11 +971,11 @@ class SQUAD_Problem(Problem):
             sample_mapping = tokenized_samples.pop("overflow_to_sample_mapping")
 
             # List that contains id of the sample that tokenized part corresponds to
-            tokenized_samples["sample_id"] = []
+            tokenized_samples["example_id"] = []
 
             for i in range(len(tokenized_samples["input_ids"])):
                 sample_idx = sample_mapping[i]
-                tokenized_samples["sample_id"].append(samples["id"][sample_idx])
+                tokenized_samples["example_id"].append(samples["id"][sample_idx])
 
                 seq_ids = tokenized_samples.sequence_ids(i)
                 label = 1 if pad_on_right else 0
@@ -885,6 +1258,79 @@ class NLG_Problem(Problem):
     
         return compute_metrics if self.args.predict_with_generate else None
 
+class CausalLMGenerationTrainer(Trainer):
+
+    def _get_tokenizer(self):
+        return getattr(self, "processing_class", None) or self.tokenizer
+
+    def _generate_accuracy(self, dataset):
+        tokenizer = self._get_tokenizer()
+        if tokenizer is None:
+            raise ValueError("CausalLMGenerationTrainer requires a tokenizer/processing_class.")
+
+        model_device = getattr(self.model, "device", None)
+        if model_device is None:
+            model_device = next(self.model.parameters()).device
+
+        was_training = self.model.training
+        self.model.eval()
+
+        correct = 0
+        total = 0
+        predictions = []
+        references = []
+
+        for item in dataset:
+            answer = str(item["answer"])
+            tokenized = tokenizer(
+                item["text"],
+                return_tensors="pt",
+                truncation=True,
+                max_length=min(self.args.max_length if hasattr(self.args, "max_length") else 2048, tokenizer.model_max_length),
+            )
+            tokenized = {key: value.to(model_device) for key, value in tokenized.items()}
+            generated = self.model.generate(
+                **tokenized,
+                max_new_tokens=max(2, len(tokenizer.tokenize(answer)) + 1),
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+            generated_tokens = generated[:, tokenized["input_ids"].shape[1]:]
+            predicted = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+
+            pred_norm = _normalize_causal_text(predicted)
+            answer_norm = _normalize_causal_text(answer)
+            if answer_norm in pred_norm:
+                correct += 1
+
+            total += 1
+            predictions.append(predicted)
+            references.append(answer)
+
+        if was_training:
+            self.model.train()
+
+        accuracy = (correct / total) if total > 0 else 0.0
+        return accuracy, predictions, references
+
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix: str = "eval", **kwargs):
+        eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
+        accuracy, _, _ = self._generate_accuracy(eval_dataset)
+        metrics = {f"{metric_key_prefix}_accuracy": accuracy}
+        self.log(metrics)
+        self.control = self.callback_handler.on_evaluate(
+            self.args, self.state, self.control, metrics
+        )
+        return metrics
+
+    def predict(self, test_dataset, ignore_keys=None, metric_key_prefix: str = "predict", **kwargs):
+        accuracy, predictions, references = self._generate_accuracy(test_dataset)
+        metrics = {f"{metric_key_prefix}_accuracy": accuracy}
+        return PredictionOutput(
+            predictions=np.array(predictions, dtype=object),
+            label_ids=np.array(references, dtype=object),
+            metrics=metrics,
+        )
 
 def create_problem(args):
     task_type = args.task_type
@@ -892,15 +1338,33 @@ def create_problem(args):
 
     if task_type == "SEQ_CLS":
         return GLUE_Problem(args)
+    elif dataset == "aqua":
+        return AQUA_Problem(args)
     elif task_type == "QUESTION_ANS":
         return SQUAD_Problem(args)
     elif task_type == "SEQ_2_SEQ_LM":
         return NLG_Problem(args)
     #task_type == "CAUSAL_LM"
-    elif dataset == "gsm8k":
-        return GSM8K_Problem(args)
-    elif dataset == "math_qa":
+    elif dataset == "commonsensqa":
+        return CommonsenseQA_Problem(args)
+    elif dataset == "boolq":
+        return BoolQ_Problem(args)
+    elif dataset in ["addsub", "multiarith", "singleeq"]:
+        return Arithmetic_Problem(args)
+    elif dataset == "strategyqa":
+        return StrategyQA_Problem(args)
+    elif dataset == "svamp":
+        return SVAMP_Problem(args)
+    elif dataset in ["bigbench_date", "object_tracking"]:
+        return BigBench_Problem(args)
+    elif dataset in ["coin_flip", "last_letters"]:
+        return CoinFlipLastLetters_Problem(args)
+    elif dataset in ["math_qa", "mathqa"]:
         return MathQA_Problem(args)
+    elif dataset == "hella_swag":
+        return HellaSwag_Problem(args)
+    elif dataset == "arc_challenge":
+        return ARCChallenge_Problem(args)
 
     #~ fix or remove this error message
     raise ValueError(f"Unknown dataset={dataset}, choose from available options:")
@@ -1173,12 +1637,17 @@ def qa_postprocess_function(samples, features, predictions, stage, config):
 
 
 class QuestionAnsweringTrainer(Trainer):
+    def __init__(self, *args, eval_examples=None, test_examples=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.eval_examples = eval_examples
+        self.test_examples = test_examples
 
     def evaluate(
         self, eval_dataset=None, eval_samples=None,
         ignore_keys=None, metric_key_prefix: str = "eval"
     ):
         eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
+        eval_samples = self.eval_examples if eval_samples is None else eval_samples
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
 
         # Temporarily disable metric computation, we will do it in the loop here
@@ -1224,6 +1693,7 @@ class QuestionAnsweringTrainer(Trainer):
         self, test_dataset, test_samples,
         ignore_keys=None, metric_key_prefix: str = "test"
     ):
+        test_samples = self.test_examples if test_samples is None else test_samples
         test_dataloader = self.get_test_dataloader(test_dataset)
 
         # Temporarily disable metric computation, we will do it in the loop here

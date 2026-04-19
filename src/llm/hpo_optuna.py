@@ -49,7 +49,8 @@ def objective_factory(base_args):
         #Сохраняем служебную информацию в trial
         trial.set_user_attr("eval_metrics", eval_metrics)
         trial.set_user_attr("lr", args.lr)
-        trial.set_user_attr("lora_r", args.lora_r)
+        if "lora_r" in sampled:
+            trial.set_user_attr("lora_r", args.lora_r)
 
         #Освобождаем память
         gc.collect()
@@ -61,7 +62,7 @@ def objective_factory(base_args):
 
 
 def run_optuna_hpo(args):
-    output_dir = getattr(args, "hpo_storage_dir", "./optuna_results_exp2")
+    output_dir = "./optuna_results_exp2" if getattr(args, "hpo_lr_only", False) else "./optuna_results"
     ensure_dir(output_dir)
 
     study_name = build_study_name(args)

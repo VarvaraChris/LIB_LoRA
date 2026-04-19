@@ -3,7 +3,26 @@ import os
 
 def get_optuna_metric_name(dataset_name: str) -> str:
     dataset_name = dataset_name.lower()
-
+    if dataset_name in [
+        "aqua",
+        "gsm8k",
+        "commonsensqa",
+        "boolq",
+        "addsub",
+        "multiarith",
+        "singleeq",
+        "strategyqa",
+        "svamp",
+        "bigbench_date",
+        "object_tracking",
+        "coin_flip",
+        "last_letters",
+        "math_qa",
+        "mathqa",
+        "hella_swag",
+        "arc_challenge",
+    ]:
+        return "eval_accuracy"
     if dataset_name == "cola":
         return "eval_matthews_correlation" #MCC
     if dataset_name in ["sst2", "mnli", "qnli", "rte", "wnli"]:
@@ -12,6 +31,8 @@ def get_optuna_metric_name(dataset_name: str) -> str:
         return "eval_f1"
     if dataset_name == "stsb":
         return "eval_pearson"
+    if dataset_name in ["squad", "squad_v2"]:
+        return "eval_f1"
 
     raise ValueError(f"Unsupported dataset for HPO: {dataset_name}")
 
@@ -23,13 +44,9 @@ def suggest_hparams(trial, args):
     """
     lr = trial.suggest_float("lr", 1e-6, 1e-2, log=True)
     if getattr(args, "hpo_lr_only", False):
-        lora_r = args.lora_r
-    else:
-        lora_r = trial.suggest_categorical("lora_r", [4, 8, 16, 32])
-
-    return {
-        "lr": lr,
-    }
+        return {"lr": lr}
+    lora_r = trial.suggest_categorical("lora_r", [4, 8, 16, 32])
+    return {"lr": lr, "lora_r": lora_r}
 
 
 def build_study_name(args) -> str:
