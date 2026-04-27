@@ -1,0 +1,22 @@
+{
+  "study_name": "microsoft_deberta-v3-base__stsb__DeLoRA",
+  "best_value": 0.9149162725647333,
+  "best_params": {
+    "lr": 1.3604562719391503e-06
+  },
+  "best_trial_number": 3,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.419196218252182,
+      "eval_pearson": 0.9149162725647333,
+      "eval_spearmanr": 0.9135451278558435,
+      "eval_combined_score": 0.9142307002102884,
+      "eval_runtime": 18.4734,
+      "eval_samples_per_second": 81.198,
+      "eval_steps_per_second": 2.544,
+      "epoch": 33.333333333333336,
+      "eval_samples": 1500
+    },
+    "lr": 1.3604562719391503e-06
+  }
+}

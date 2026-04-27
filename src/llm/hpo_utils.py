@@ -45,7 +45,7 @@ def suggest_hparams(trial, args):
     lr = trial.suggest_float("lr", 1e-6, 1e-2, log=True)
     if getattr(args, "hpo_lr_only", False):
         return {"lr": lr}
-    lora_r = trial.suggest_categorical("lora_r", [4, 8, 16, 32])
+    lora_r = trial.suggest_categorical("lora_r", [4, 8])
     return {"lr": lr, "lora_r": lora_r}
 
 

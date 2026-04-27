@@ -349,12 +349,19 @@ class GSM8K_Problem(CausalLM_Problem):
         dataset = load_dataset("openai/gsm8k", "main")
 
         # This dataset only has train and test parts by default
-        self.train_dataset = dataset["train"]
+        train_dataset = dataset["train"]
         self.test_dataset = dataset["test"]
 
         # See description of --use_test_as_eval
         if self.args.use_test_as_eval:
             self.eval_dataset = dataset["test"]
+            self.train_dataset = train_dataset
+        elif self.args.do_eval:
+            split = train_dataset.train_test_split(test_size=0.1, seed=self.args.seed)
+            self.train_dataset = split["train"]
+            self.eval_dataset = split["test"]
+        else:
+            self.train_dataset = train_dataset
 
     def process_dataset(self, tokenizer):
         def process_function(samples, tokenizer, args, is_eval):
@@ -397,11 +404,18 @@ class MathQA_Problem(CausalLM_Problem):
         dataset = load_dataset("allenai/math_qa")
 
         # This dataset only has train and test parts by default
-        self.train_dataset = dataset["train"]
+        train_dataset = dataset["train"]
         self.test_dataset = dataset["test"]
 
         if self.args.use_test_as_eval:
             self.eval_dataset = dataset["test"]
+            self.train_dataset = train_dataset
+        elif self.args.do_eval:
+            split = train_dataset.train_test_split(test_size=0.1, seed=self.args.seed)
+            self.train_dataset = split["train"]
+            self.eval_dataset = split["test"]
+        else:
+            self.train_dataset = train_dataset
 
     def process_dataset(self, tokenizer):
         def get_answer(options, correct):
@@ -1263,6 +1277,19 @@ class CausalLMGenerationTrainer(Trainer):
     def _get_tokenizer(self):
         return getattr(self, "processing_class", None) or self.tokenizer
 
+    def _sanitize_generation_config(self):
+        generation_config = getattr(self.model, "generation_config", None)
+        if generation_config is None:
+            return
+
+        # We use deterministic generation for benchmark eval, so sampling-only
+        # flags should be cleared to avoid repeated Transformers warnings.
+        generation_config.do_sample = False
+        if hasattr(generation_config, "temperature"):
+            generation_config.temperature = None
+        if hasattr(generation_config, "top_p"):
+            generation_config.top_p = None
+
     def _generate_accuracy(self, dataset):
         tokenizer = self._get_tokenizer()
         if tokenizer is None:
@@ -1275,6 +1302,7 @@ class CausalLMGenerationTrainer(Trainer):
         was_training = self.model.training
         self.model.eval()
 
+        self._sanitize_generation_config()
         correct = 0
         total = 0
         predictions = []
@@ -1359,6 +1387,8 @@ def create_problem(args):
         return BigBench_Problem(args)
     elif dataset in ["coin_flip", "last_letters"]:
         return CoinFlipLastLetters_Problem(args)
+    elif dataset == "gsm8k":
+        return GSM8K_Problem(args)
     elif dataset in ["math_qa", "mathqa"]:
         return MathQA_Problem(args)
     elif dataset == "hella_swag":
