@@ -7,6 +7,7 @@ import peft
 
 import utils
 from utils_llm import DatasetRegistry
+from llm.gsm8k_utils import gsm8k_exact_match
 
 import warnings
 
@@ -298,15 +299,21 @@ class Finetuner:
                 # Generate prediction
                 predicted_response = generator(
                     item["text"],
-                    max_new_tokens=len(item["raw_y"]) + 2,
+                    max_new_tokens=(64 if self.args.dataset == "gsm8k" else len(item["raw_y"]) + 2),
                     num_return_sequences=1,
+                    do_sample=False,
                 )[0]["generated_text"]
-                predicted_response = predicted_response.replace(" ", "").replace(
-                    "\n", ""
-                )
-                item["raw_y"] = item["raw_y"].replace(" ", "").replace("\n", "")
                 # Check if correct answer is in prediction
-                if item["raw_y"] in predicted_response:
+                if self.args.dataset == "gsm8k":
+                    is_correct = gsm8k_exact_match(predicted_response, item["raw_y"])
+                else:
+                    predicted_response = predicted_response.replace(" ", "").replace(
+                        "\n", ""
+                    )
+                    item["raw_y"] = item["raw_y"].replace(" ", "").replace("\n", "")
+                    is_correct = item["raw_y"] in predicted_response
+
+                if is_correct:
                     correct += 1
 
                 # Debug output

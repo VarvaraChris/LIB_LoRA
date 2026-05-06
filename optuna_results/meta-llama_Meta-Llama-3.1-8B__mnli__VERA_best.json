@@ -1,0 +1,22 @@
+{
+  "study_name": "meta-llama_Meta-Llama-3.1-8B__mnli__VERA",
+  "best_value": 0.8721278721278721,
+  "best_params": {
+    "lr": 0.008241453784854696,
+    "lora_r": 4
+  },
+  "best_trial_number": 10,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.3259183466434479,
+      "eval_accuracy": 0.8721278721278721,
+      "eval_runtime": 528.3401,
+      "eval_samples_per_second": 1.895,
+      "eval_steps_per_second": 0.475,
+      "epoch": 0.04074315514993481,
+      "eval_samples": 1001
+    },
+    "lora_r": 4,
+    "lr": 0.008241453784854696
+  }
+}

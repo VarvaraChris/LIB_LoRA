@@ -3,7 +3,7 @@ from functools import partial
 from torch.utils.data import Dataset
 from utils import shuffleDict
 from datasets import load_dataset
-
+from llm.gsm8k_utils import build_gsm8k_prompt
 
 class DatasetBuilder:
     """Base class for dataset builders"""
@@ -136,20 +136,18 @@ class AquaDatasetBuilder(DatasetBuilder):
 
 class GSM8KDatasetBuilder(DatasetBuilder):
     def get_intro_blurb(self):
-        return "answer only numbers, write answer first."
+        return "Q:"
+
+    def create_prompt_formats(self, sample, eval_mode=False):
+        if eval_mode:
+            formatted_prompt = build_gsm8k_prompt(sample["question"])
+        else:
+            formatted_prompt = build_gsm8k_prompt(sample["question"], sample["response"])
+
+        sample["text"] = formatted_prompt
 
     def build_dataset(self):
         dataset = load_dataset("openai/gsm8k", "main")
-        train_data = dataset["train"]
-        eval_data = dataset["test"]
-
-        for item in train_data:
-            self.train_questions.append(item["question"])
-            self.train_answers.append(item["answer"].split("####")[1].strip())
-
-        for item in eval_data:
-            self.eval_questions.append(item["question"])
-            self.eval_answers.append(item["answer"].split("####")[1].strip())
 
 
 class CommonsenseQADatasetBuilder(DatasetBuilder):

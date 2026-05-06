@@ -12,10 +12,12 @@ from tqdm.auto import tqdm
 import os  # for postprocess_qa_predictions, mb remove
 import nltk  # for nlg
 import json  # for nlg
+import re
 from pathlib import Path
 from dataclasses import dataclass, field  # for qa custom training args class
 
 from datasets import load_dataset, load_metric, Dataset as HFDataset
+from llm.gsm8k_utils import build_gsm8k_prompt, gsm8k_exact_match
 from transformers import (
     PreTrainedTokenizerFast,
     Trainer,
@@ -365,13 +367,12 @@ class GSM8K_Problem(CausalLM_Problem):
 
     def process_dataset(self, tokenizer):
         def process_function(samples, tokenizer, args, is_eval):
-            intro = "Answer only numbers, write answer first. " #~ maybe change this
             batch_size = len(samples['question'])
 
             if is_eval:
                 return {
                     "text": [
-                        f"{intro}Question: {samples['question'][i]} Answer: "
+                        build_gsm8k_prompt(samples['question'][i])
                         for i in range(batch_size)
                     ],
                     "answer": [
@@ -381,8 +382,10 @@ class GSM8K_Problem(CausalLM_Problem):
                 }
 
             inputs = [
-                f"{intro}Question: {samples['question'][i]} "
-                f"Answer: {samples['answer'][i].split('####')[1].strip()}"
+                build_gsm8k_prompt(
+                    samples['question'][i],
+                    samples['answer'][i].split('####')[1].strip(),
+                )
                 for i in range(batch_size)
             ]
 
@@ -459,6 +462,16 @@ class MathQA_Problem(CausalLM_Problem):
 
 def _normalize_causal_text(text):
     return str(text).replace(" ", "").replace("\n", "").strip()
+
+
+def _score_causal_prediction(dataset_name, prediction, answer):
+    dataset_name = str(dataset_name).lower()
+    if dataset_name == "gsm8k":
+        return pred_extracted == answer_extracted
+
+    pred_norm = _normalize_causal_text(prediction)
+    answer_norm = _normalize_causal_text(answer)
+    return gsm8k_exact_match(prediction, answer)
 
 
 def _dataset_from_pairs(pairs):
@@ -1307,6 +1320,7 @@ class CausalLMGenerationTrainer(Trainer):
         total = 0
         predictions = []
         references = []
+        dataset_name = getattr(self.args, "dataset", "")
 
         for item in dataset:
             answer = str(item["answer"])
@@ -1319,16 +1333,18 @@ class CausalLMGenerationTrainer(Trainer):
             tokenized = {key: value.to(model_device) for key, value in tokenized.items()}
             generated = self.model.generate(
                 **tokenized,
-                max_new_tokens=max(2, len(tokenizer.tokenize(answer)) + 1),
+                max_new_tokens=max_new_tokens,
                 do_sample=False,
                 pad_token_id=tokenizer.pad_token_id,
             )
             generated_tokens = generated[:, tokenized["input_ids"].shape[1]:]
+            if str(dataset_name).lower() == "gsm8k":
+                max_new_tokens = 64
+            else:
+                max_new_tokens = max(2, len(tokenizer.tokenize(answer)) + 1)
             predicted = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
 
-            pred_norm = _normalize_causal_text(predicted)
-            answer_norm = _normalize_causal_text(answer)
-            if answer_norm in pred_norm:
+            if _score_causal_prediction(dataset_name, predicted, answer):
                 correct += 1
 
             total += 1
