@@ -8,10 +8,13 @@ import peft
 import utils
 from utils_llm import DatasetRegistry
 from llm.gsm8k_utils import gsm8k_exact_match
+from llm.commonsenseqa_utils import COMMONSENSEQA_CHOICES
 
 import warnings
 
 DATASETS = ["mathqa", "coin_flip"]
+
+MULTIPLE_CHOICE_DATASETS = {"bigbench_date", "object_tracking"}
 
 warnings.filterwarnings("ignore")
 
@@ -147,6 +150,8 @@ class Finetuner:
         # Extract train and eval data
         train_questions, train_answers = data["train"]
         eval_questions, eval_answers = data["eval"]
+        train_choices = data.get("train_choices", [])
+        eval_choices = data.get("eval_choices", [])
 
         # Create datasets
         self.train_dataset = None
@@ -154,20 +159,24 @@ class Finetuner:
 
         if train_questions and len(train_questions) > 0:
             train_dict = {
-                "question": ["Question: " + q for q in train_questions],
+                "question": list(train_questions),
                 "response": train_answers,
                 "raw_x": train_questions,
                 "raw_y": train_answers,
             }
+            if train_choices:
+                train_dict["raw_choices"] = train_choices
             self.train_dataset = datasets.Dataset.from_dict(train_dict)
 
         if eval_questions and len(eval_questions) > 0:
             eval_dict = {
-                "question": ["Question: " + q for q in eval_questions],
+                "question": list(eval_questions),
                 "response": eval_answers,
                 "raw_x": eval_questions,
                 "raw_y": eval_answers,
             }
+            if eval_choices:
+                eval_dict["raw_choices"] = eval_choices
             self.eval_dataset = datasets.Dataset.from_dict(eval_dict)
 
     def prepare_training_dataset(self):
@@ -296,22 +305,7 @@ class Finetuner:
 
         for i, item in enumerate(eval_dataset):
             try:
-                # Generate prediction
-                predicted_response = generator(
-                    item["text"],
-                    max_new_tokens=(64 if self.args.dataset == "gsm8k" else len(item["raw_y"]) + 2),
-                    num_return_sequences=1,
-                    do_sample=False,
-                )[0]["generated_text"]
-                # Check if correct answer is in prediction
-                if self.args.dataset == "gsm8k":
-                    is_correct = gsm8k_exact_match(predicted_response, item["raw_y"])
-                else:
-                    predicted_response = predicted_response.replace(" ", "").replace(
-                        "\n", ""
-                    )
-                    item["raw_y"] = item["raw_y"].replace(" ", "").replace("\n", "")
-                    is_correct = item["raw_y"] in predicted_response
+                predicted_response, is_correct = self.score_eval_item(item, generator)
 
                 if is_correct:
                     correct += 1
@@ -332,6 +326,79 @@ class Finetuner:
                 continue
 
         return correct, total
+
+    def get_eval_max_new_tokens(self, item):
+        if self.args.dataset == "gsm8k":
+            return 64
+        return len(item["raw_y"]) + 2
+
+    def score_eval_item(self, item, generator):
+        if self.args.dataset in MULTIPLE_CHOICE_DATASETS:
+            predicted = self.score_multiple_choice(
+                item["text"],
+                item.get("raw_choices", []),
+                normalize=True,
+            )
+            return predicted, predicted == item["raw_y"]
+
+        predicted = generator(
+            item["text"],
+            max_new_tokens=self.get_eval_max_new_tokens(item),
+            num_return_sequences=1,
+            do_sample=False,
+        )[0]["generated_text"]
+
+        if self.args.dataset == "gsm8k":
+            return predicted, gsm8k_exact_match(predicted, item["raw_y"])
+
+        pred_norm = predicted.replace(" ", "").replace("\n", "")
+        gold_norm = item["raw_y"].replace(" ", "").replace("\n", "")
+        return predicted, gold_norm in pred_norm
+
+    def score_multiple_choice(self, prompt, choices, normalize=False):
+        best_choice = None
+        best_score = None
+
+        prompt_tokens = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=min(self.args.max_seq_length, self.tokenizer.model_max_length),
+            add_special_tokens=False,
+        )
+        prompt_len = prompt_tokens["input_ids"].shape[1]
+
+        for choice in choices:
+            full_tokens = self.tokenizer(
+                f"{prompt} {choice}",
+                return_tensors="pt",
+                truncation=True,
+                max_length=min(self.args.max_seq_length, self.tokenizer.model_max_length),
+                add_special_tokens=False,
+            )
+
+            full_input_ids = full_tokens["input_ids"].to(self.model.device)
+            full_attention_mask = full_tokens["attention_mask"].to(self.model.device)
+            continuation_len = full_input_ids.shape[1] - prompt_len
+            if continuation_len <= 0:
+                continue
+
+            labels = full_input_ids.clone()
+            labels[:, :prompt_len] = -100
+
+            with torch.no_grad():
+                outputs = self.model(
+                    input_ids=full_input_ids,
+                    attention_mask=full_attention_mask,
+                    labels=labels,
+                )
+
+            score = -outputs.loss.item() if normalize else -outputs.loss.item() * continuation_len
+            if best_score is None or score > best_score:
+                best_score = score
+                best_choice = choice
+
+        return best_choice or ""
 
     def log_final_results(self, correct, total):
         """Log final evaluation results"""

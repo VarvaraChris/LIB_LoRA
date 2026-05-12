@@ -484,6 +484,17 @@ def _dataset_from_pairs(pairs):
     })
 
 
+def _dataset_from_choice_pairs(pairs):
+    if not pairs:
+        return None
+    questions, responses, choices = zip(*pairs)
+    return HFDataset.from_dict({
+        "question": list(questions),
+        "response": [str(answer) for answer in responses],
+        "choice_texts": [list(choice_list) for choice_list in choices],
+    })
+
+
 def _resolve_dataset_path(args, relative_path):
     if args.dataset_path is not None:
         return args.dataset_path
@@ -656,39 +667,84 @@ class SVAMP_Problem(PromptBasedCausalLM_Problem):
 
 
 class BigBench_Problem(PromptBasedCausalLM_Problem):
-    intro_blurb = "answer only the letter choice, write answer first."
+    intro_blurb = ""
 
-    dataset_to_relative_path = {
-        "bigbench_date": "BigBench/date_understanding.json",
-        "object_tracking": "BigBench/tracking_shuffled_objects.json",
+    dataset_to_hf_source = {
+        "bigbench_date": ("hails/bigbench", "date_understanding_zero_shot"),
+       "object_tracking": ("hails/bigbench", "tracking_shuffled_objects_three_objects_zero_shot"),
     }
 
-    def build_splits(self):
-        path = _resolve_dataset_path(self.args, self.dataset_to_relative_path[self.args.dataset])
-        items = _load_json(path)["examples"]
-        pairs = []
+    def load_dataset(self):
+        path, subset = self.dataset_to_hf_source[self.args.dataset]
+        dataset = load_dataset(path, subset)
 
-        for item in items:
-            question = item["input"].strip()
-            if self.args.dataset == "bigbench_date":
-                choice_index = ["A", "B", "C", "D", "E", "F"]
-                choice_dict = shuffleDict(item["target_scores"])
-                choice = "Answer Choices:"
-            else:
-                choice_index = ["A", "B", "C"]
-                choice_dict = item["target_scores"]
-                choice = "\nWhich choice is true ? Answer Choices:"
+        def convert(dataset_split):
+            pairs = []
+            for item in dataset_split:
+                question = item["inputs"].strip()
+                choices = list(item["multiple_choice_targets"])
+                scores = list(item["multiple_choice_scores"])
+                targets = list(item.get("targets", []))
 
-            answer = None
-            for i, (key, value) in enumerate(choice_dict.items()):
-                choice += f" ({choice_index[i]}) {key}"
-                if value == 1:
-                    answer = choice_index[i]
-            pairs.append((question + " " + choice, answer))
+                answer = str(targets[0]).strip() if targets else None
 
-        train_pairs, eval_pairs = _split_pairs(pairs, 0.8)
-        return train_pairs, eval_pairs, None
+                if answer is None and scores:
+                    answer = str(choices[int(np.argmax(scores))]).strip()
 
+                pairs.append((question, answer, choices))
+            return pairs
+
+        if "train" in dataset:
+            train_pairs = convert(dataset["train"])
+        elif "default" in dataset:
+            all_pairs = convert(dataset["default"])
+            train_pairs, _ = _split_pairs(all_pairs, 0.8)
+        elif "test" in dataset:
+            all_pairs = convert(dataset["test"])
+            train_pairs, _ = _split_pairs(all_pairs, 0.8)
+        else:
+            first_split = next(iter(dataset.keys()))
+            all_pairs = convert(dataset[first_split])
+            train_pairs, _ = _split_pairs(all_pairs, 0.8)
+
+        if "validation" in dataset:
+            eval_pairs = convert(dataset["validation"])
+        elif "default" in dataset:
+            all_pairs = convert(dataset["default"])
+            _, eval_pairs = _split_pairs(all_pairs, 0.8)
+        elif "test" in dataset:
+            all_pairs = convert(dataset["test"])
+            _, eval_pairs = _split_pairs(all_pairs, 0.8)
+        else:
+            first_split = next(iter(dataset.keys()))
+            all_pairs = convert(dataset[first_split])
+            _, eval_pairs = _split_pairs(all_pairs, 0.8)
+
+        self.train_dataset = _dataset_from_choice_pairs(train_pairs)
+        self.eval_dataset = _dataset_from_choice_pairs(eval_pairs)
+        self.test_dataset = None
+
+    def process_dataset(self, tokenizer):
+
+        def process_function(samples, tokenizer, args, is_eval):
+            batch_size = len(samples["question"])
+
+            if is_eval:
+                return {
+                     "text": [samples["question"][i] for i in range(batch_size)],
+                    "answer": [str(samples["response"][i]) for i in range(batch_size)],
+                    "choice_texts": [list(samples["choice_texts"][i]) for i in range(batch_size)],
+                    "choice_score_mode": ["norm" for _ in range(batch_size)],
+                }
+
+            inputs = [
+                f"{samples['question'][i]}\n{samples['response'][i]}"
+                for i in range(batch_size)
+            ]
+            max_len = min(args.max_seq_length, tokenizer.model_max_length)
+            return tokenizer(inputs, max_length=max_len, truncation=True)
+
+        return CausalLM_Problem.process_dataset(self, tokenizer, process_function)
 
 class CoinFlipLastLetters_Problem(PromptBasedCausalLM_Problem):
 
@@ -1331,6 +1387,10 @@ class CausalLMGenerationTrainer(Trainer):
                 max_length=min(self.args.max_length if hasattr(self.args, "max_length") else 2048, tokenizer.model_max_length),
             )
             tokenized = {key: value.to(model_device) for key, value in tokenized.items()}
+            if str(dataset_name).lower() == "gsm8k":
+                max_new_tokens = 64
+            else:
+                max_new_tokens = max(2, len(tokenizer.tokenize(answer)) + 1)
             generated = self.model.generate(
                 **tokenized,
                 max_new_tokens=max_new_tokens,
@@ -1338,10 +1398,6 @@ class CausalLMGenerationTrainer(Trainer):
                 pad_token_id=tokenizer.pad_token_id,
             )
             generated_tokens = generated[:, tokenized["input_ids"].shape[1]:]
-            if str(dataset_name).lower() == "gsm8k":
-                max_new_tokens = 64
-            else:
-                max_new_tokens = max(2, len(tokenizer.tokenize(answer)) + 1)
             predicted = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
 
             if _score_causal_prediction(dataset_name, predicted, answer):
@@ -1357,9 +1413,102 @@ class CausalLMGenerationTrainer(Trainer):
         accuracy = (correct / total) if total > 0 else 0.0
         return accuracy, predictions, references
 
+    def _multiple_choice_accuracy(self, dataset):
+        tokenizer = self._get_tokenizer()
+        if tokenizer is None:
+            raise ValueError("CausalLMGenerationTrainer requires a tokenizer/processing_class.")
+
+        model_device = getattr(self.model, "device", None)
+        if model_device is None:
+            model_device = next(self.model.parameters()).device
+
+        was_training = self.model.training
+        self.model.eval()
+
+        correct = 0
+        total = 0
+        predictions = []
+        references = []
+
+        for item in dataset:
+            prompt = item["text"]
+            answer = str(item["answer"]).strip()
+            choices = list(item.get("choice_texts", item.get("choice_labels", [])))
+            score_mode = item.get("choice_score_mode", "sum")
+
+            best_choice = None
+            best_score = None
+
+            prompt_tokens = tokenizer(
+                prompt,
+                return_tensors="pt",
+                truncation=True,
+                max_length=min(
+                    self.args.max_length if hasattr(self.args, "max_length") else 2048,
+                    tokenizer.model_max_length,
+                ),
+                add_special_tokens=False,
+            )
+            prompt_len = prompt_tokens["input_ids"].shape[1]
+
+            for choice in choices:
+                full_tokens = tokenizer(
+                    f"{prompt} {choice}",
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=min(
+                        self.args.max_length if hasattr(self.args, "max_length") else 2048,
+                        tokenizer.model_max_length,
+                    ),
+                    add_special_tokens=False,
+                )
+
+                full_input_ids = full_tokens["input_ids"].to(model_device)
+                full_attention_mask = full_tokens["attention_mask"].to(model_device)
+                continuation_len = full_input_ids.shape[1] - prompt_len
+                if continuation_len <= 0:
+                    continue
+
+                labels = full_input_ids.clone()
+                labels[:, :prompt_len] = -100
+
+                with torch.no_grad():
+                    outputs = self.model(
+                        input_ids=full_input_ids,
+                        attention_mask=full_attention_mask,
+                        labels=labels,
+                    )
+
+                if score_mode == "norm":
+                    score = -outputs.loss.item()
+                else:
+                    score = -outputs.loss.item() * continuation_len
+
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_choice = choice
+
+            predicted = best_choice or ""
+            if predicted == answer:
+                correct += 1
+
+            total += 1
+            predictions.append(predicted)
+            references.append(answer)
+
+        if was_training:
+            self.model.train()
+
+        accuracy = (correct / total) if total > 0 else 0.0
+        return accuracy, predictions, references
+
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix: str = "eval", **kwargs):
         eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
-        accuracy, _, _ = self._generate_accuracy(eval_dataset)
+        dataset_name = str(getattr(self.args, "dataset", "")).lower()
+        if dataset_name in {"bigbench_date", "object_tracking"}:
+            accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset)
+        else:
+            accuracy, _, _ = self._generate_accuracy(eval_dataset)
         metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         self.log(metrics)
         self.control = self.callback_handler.on_evaluate(
@@ -1368,7 +1517,11 @@ class CausalLMGenerationTrainer(Trainer):
         return metrics
 
     def predict(self, test_dataset, ignore_keys=None, metric_key_prefix: str = "predict", **kwargs):
-        accuracy, predictions, references = self._generate_accuracy(test_dataset)
+        dataset_name = str(getattr(self.args, "dataset", "")).lower()
+        if dataset_name in {"bigbench_date", "object_tracking"}:
+            accuracy, predictions, references = self._multiple_choice_accuracy(test_dataset)
+        else:
+            accuracy, predictions, references = self._generate_accuracy(test_dataset)
         metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         return PredictionOutput(
             predictions=np.array(predictions, dtype=object),

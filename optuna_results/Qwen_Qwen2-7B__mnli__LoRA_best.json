@@ -1,0 +1,22 @@
+{
+  "study_name": "Qwen_Qwen2-7B__mnli__LoRA",
+  "best_value": 0.8902699949057565,
+  "best_params": {
+    "lr": 8.069420900355152e-05,
+    "lora_r": 4
+  },
+  "best_trial_number": 10,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.3035878539085388,
+      "eval_accuracy": 0.8902699949057565,
+      "eval_runtime": 1803.7972,
+      "eval_samples_per_second": 5.441,
+      "eval_steps_per_second": 5.441,
+      "epoch": 0.04074336265157804,
+      "eval_samples": 9815
+    },
+    "lora_r": 4,
+    "lr": 8.069420900355152e-05
+  }
+}

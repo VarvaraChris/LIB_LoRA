@@ -1,0 +1,22 @@
+{
+  "study_name": "meta-llama_Meta-Llama-3.1-8B__mnli__DoRA",
+  "best_value": 0.8901098901098901,
+  "best_params": {
+    "lr": 5.37947402309238e-05,
+    "lora_r": 8
+  },
+  "best_trial_number": 2,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_loss": 0.29684579372406006,
+      "eval_accuracy": 0.8901098901098901,
+      "eval_runtime": 1458.9335,
+      "eval_samples_per_second": 0.686,
+      "eval_steps_per_second": 0.172,
+      "epoch": 0.04074315514993481,
+      "eval_samples": 1001
+    },
+    "lora_r": 8,
+    "lr": 5.37947402309238e-05
+  }
+}

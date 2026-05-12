@@ -12,8 +12,10 @@ class DatasetBuilder:
         self.args = args
         self.train_questions = []
         self.train_answers = []
+        self.train_choices = []
         self.eval_questions = []
         self.eval_answers = []
+        self.eval_choices = []
 
     def get_intro_blurb(self):
         """Get appropriate intro blurb for the dataset type - override in subclasses"""
@@ -103,6 +105,8 @@ class DatasetBuilder:
         eval_questions, eval_answers = self.apply_limits(
             self.eval_questions, self.eval_answers, is_eval=True
         )
+        train_choices = self.train_choices[: len(train_questions)] if self.train_choices else []
+        eval_choices = self.eval_choices[: len(eval_questions)] if self.eval_choices else []
 
         print(f"dataset: {self.args.dataset}")
         print(f"train data size: {len(train_answers)}")
@@ -111,6 +115,8 @@ class DatasetBuilder:
         return {
             "train": (train_questions, train_answers),
             "eval": (eval_questions, eval_answers),
+            "train_choices": train_choices,
+            "eval_choices": eval_choices,
         }
 
 
@@ -308,49 +314,76 @@ class SVAMPDatasetBuilder(DatasetBuilder):
 class BigBenchDatasetBuilder(DatasetBuilder):
     """Handles bigbench_date and object_tracking datasets"""
 
+    DATASET_TO_HF_SOURCE = {
+        "bigbench_date": ("hails/bigbench", "date_understanding_zero_shot"),
+        "object_tracking": ("hails/bigbench", "tracking_shuffled_objects_three_objects_zero_shot"),
+    }
+
     def get_intro_blurb(self):
-        return "answer only the letter choice, write answer first."
+        return ""
+
+    def create_prompt_formats(self, sample, eval_mode=False):
+        if eval_mode:
+            sample["text"] = sample["question"]
+        else:
+            sample["text"] = f"{sample['question']}\n{sample['response']}"
+        return sample
 
     def build_dataset(self):
-        with open(self.args.dataset_path) as f:
-            json_data = json.load(f)["examples"]
+        path, subset = self.DATASET_TO_HF_SOURCE[self.args.dataset]
+        dataset = load_dataset(path, subset)
 
-            if self.args.dataset == "bigbench_date":
-                choice_index = ["A", "B", "C", "D", "E", "F"]
-            elif self.args.dataset == "object_tracking":
-                choice_index = ["A", "B", "C"]
+        def convert(split):
+             questions, answers, choice_lists = [], [], []
+            for item in split:
+                question, answer, choices = self._process_bigbench_item(item)
+                questions.append(question)
+                answers.append(answer)
+            choice_lists.append(choices)
+            return questions, answers, choice_lists
 
-            # Split train/eval
-            split_point = int(len(json_data) * 0.8)
-            train_data = json_data[:split_point]
-            eval_data = json_data[split_point:]
+        if "train" in dataset:
+            train_questions, train_answers, train_choices = convert(dataset["train"])
+        else:
+            base_split_name = "default" if "default" in dataset else next(iter(dataset.keys()))
+            all_questions, all_answers, all_choices = convert(dataset[base_split_name])
+            split_point = int(len(all_questions) * 0.8)
+            train_questions = all_questions[:split_point]
+            train_answers = all_answers[:split_point]
+            train_choices = all_choices[:split_point]
 
-            for line in train_data:
-                q, a = self._process_bigbench_item(line, choice_index)
-                self.train_questions.append(q)
-                self.train_answers.append(a)
+        if "validation" in dataset:
+            eval_questions, eval_answers, eval_choices = convert(dataset["validation"])
+        else:
+            base_split_name = "default" if "default" in dataset else next(iter(dataset.keys()))
+            all_questions, all_answers, all_choices = convert(dataset[base_split_name])
+            split_point = int(len(all_questions) * 0.8)
+            eval_questions = all_questions[split_point:]
+            eval_answers = all_answers[split_point:]
+            eval_choices = all_choices[split_point:]
 
-            for line in eval_data:
-                q, a = self._process_bigbench_item(line, choice_index)
-                self.eval_questions.append(q)
-                self.eval_answers.append(a)
+        self.train_questions.extend(train_questions)
+        self.train_answers.extend(train_answers)
+        self.train_choices.extend(train_choices)
+        self.eval_questions.extend(eval_questions)
+        self.eval_answers.extend(eval_answers)
+        self.eval_choices.extend(eval_choices)
 
-    def _process_bigbench_item(self, line, choice_index):
-        q = line["input"].strip()
+    def _process_bigbench_item(self, item):
+        question = item["inputs"].strip()
+        choices = list(item["multiple_choice_targets"])
+        scores = list(item["multiple_choice_scores"])
 
-        if self.args.dataset == "bigbench_date":
-            choice = "Answer Choices:"
-            choice_dic = shuffleDict(line["target_scores"])
-        elif self.args.dataset == "object_tracking":
-            choice = "\nWhich choice is true ? Answer Choices:"
-            choice_dic = line["target_scores"]
+        targets = list(item.get("targets", []))
 
-        for i, (key, value) in enumerate(choice_dic.items()):
-            choice += f" ({choice_index[i]}) {key}"
-            if value == 1:
-                a = choice_index[i]
+        answer = None
+        if targets:
+            answer = str(targets[0]).strip()
 
-        return q + " " + choice, a
+        if answer is None and scores:
+            answer = str(choices[max(range(len(scores)), key=lambda idx: scores[idx])]).strip()
+
+        return question, answer, choices
 
 
 class CoinFlipLastLettersDatasetBuilder(DatasetBuilder):
@@ -418,7 +451,6 @@ class DatasetRegistry:
 
     DATASET_PATHS = {
         "aqua": "data/AQuA/train.json",
-        "gsm8k": "data/grade-school-math/train.jsonl",
         "commonsensqa": "data/CommonsenseQA/train_rand_split.jsonl",
         "boolq": "data/BoolQ/train.jsonl",
         "addsub": "data/AddSub/AddSub.json",
@@ -426,8 +458,6 @@ class DatasetRegistry:
         "singleeq": "data/SingleEq/questions.json",
         "strategyqa": "data/StrategyQA/strategyqa_train.json",
         "svamp": "data/SVAMP/SVAMP.json",
-        "bigbench_date": "data/BigBench/date_understanding.json",
-        "object_tracking": "data/BigBench/tracking_shuffled_objects.json",
         "coin_flip": "data/coin_flip/coin_flip.json",
         "last_letters": "data/BigBench/last_letters.json",
     }
