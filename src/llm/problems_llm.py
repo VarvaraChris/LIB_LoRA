@@ -18,6 +18,7 @@ from dataclasses import dataclass, field  # for qa custom training args class
 
 from datasets import load_dataset, load_metric, Dataset as HFDataset
 from llm.gsm8k_utils import build_gsm8k_prompt, gsm8k_exact_match
+from llm.mathqa_utils import build_mathqa_prompt, get_mathqa_choice_texts, get_mathqa_correct_choice
 from transformers import (
     PreTrainedTokenizerFast,
     Trainer,
@@ -300,7 +301,12 @@ class CausalLM_Problem(Problem):
         metric_for_best_model = (
             "accuracy" if args.metric_for_best_model == "loss" else args.metric_for_best_model
         )
-
+        save_strategy = args.save_strategy
+        load_best_model_at_end = (
+            args.eval_strategy != "no"
+            and save_strategy != "no"
+            and not getattr(args, "do_hpo", False)
+        )
         training_args = TrainingArguments(
             do_train=args.do_train,
             do_eval=args.do_eval,
@@ -319,9 +325,9 @@ class CausalLM_Problem(Problem):
             max_steps=args.max_steps_train,
             logging_steps=args.logging_steps,
             eval_strategy=args.eval_strategy,
-            save_strategy=args.eval_strategy,
+            save_strategy=save_strategy,
             eval_steps=args.eval_steps,
-            save_steps=args.eval_steps,
+            save_steps=args.save_steps,
             bf16=args.bf16,
             fp16=args.fp16,
             #~ maybe add logging dir
@@ -329,7 +335,7 @@ class CausalLM_Problem(Problem):
             overwrite_output_dir=True,
             run_name=args.run_name,
             report_to=["wandb" if args.wandb else "none"],
-            load_best_model_at_end=(args.eval_strategy != "no"),
+            load_best_model_at_end=load_best_model_at_end,
             metric_for_best_model=metric_for_best_model,
             greater_is_better=(metric_for_best_model not in ["loss"]), #mb extend
         )
@@ -402,61 +408,59 @@ class GSM8K_Problem(CausalLM_Problem):
 class MathQA_Problem(CausalLM_Problem):
 
     def load_dataset(self):
-        # FIX: crushes with error "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb2
-        # in position 1: invalid start byte"
-        dataset = load_dataset("allenai/math_qa")
+        dataset = load_dataset("regisss/math_qa")
 
-        # This dataset only has train and test parts by default
-        train_dataset = dataset["train"]
-        self.test_dataset = dataset["test"]
+        def convert(dataset_split):
+            pairs = []
+            for item in dataset_split:
+                answer = get_mathqa_correct_choice(item["options"], item["correct"])
+                choices = get_mathqa_choice_texts(item["options"])
+                if answer is None or not choices:
+                    continue
+                prompt = build_mathqa_prompt(item["Problem"], item["options"])
+                pairs.append((prompt, answer, choices))
+            return _dataset_from_choice_pairs(pairs)
+
+        train_split = dataset["train"]
+        test_split = dataset["test"] if "test" in dataset else None
+        validation_split = dataset["validation"] if "validation" in dataset else None
+
+        self.test_dataset = convert(test_split) if test_split is not None else None
 
         if self.args.use_test_as_eval:
-            self.eval_dataset = dataset["test"]
-            self.train_dataset = train_dataset
+            self.train_dataset = convert(train_split)
+            self.eval_dataset = convert(test_split) if test_split is not None else convert(train_split)
         elif self.args.do_eval:
-            split = train_dataset.train_test_split(test_size=0.1, seed=self.args.seed)
-            self.train_dataset = split["train"]
-            self.eval_dataset = split["test"]
+            if validation_split is not None:
+                self.train_dataset = convert(train_split)
+                self.eval_dataset = convert(validation_split)
+            else:
+                split = train_split.train_test_split(test_size=0.1, seed=self.args.seed)
+                self.train_dataset = convert(split["train"])
+                self.eval_dataset = convert(split["test"])
         else:
-            self.train_dataset = train_dataset
+            self.train_dataset = convert(train_split)
 
     def process_dataset(self, tokenizer):
-        def get_answer(options, correct):
-            # Assume that there are at most 5 options for each question indexed by letters
-            ans = ['a', 'b', 'c', 'd', 'e']
-
-            return options.split(',')[ans.index(correct)].split(')')[1].strip()
 
         def process_function(samples, tokenizer, args, is_eval):
-            #intro = "Answer only with numbers, choose from options"
-            intro = "Answer only numbers, write answer first. "
-            batch_size = len(samples['question'])
+            batch_size = len(samples["question"])
 
             if is_eval:
                 return {
-                    "text": [
-                        f"{intro}Question: {samples['Problem'][i]} "
-                        f"Options: {samples['options'][i]} Answer: "
-                        for i in range(batch_size)
-                    ],
-                    "answer": [
-                        get_answer(samples['options'][i], samples['correct'][i])
-                        for i in range(batch_size)
-                    ]
+                    "text": [samples["question"][i] for i in range(batch_size)],
+                    "answer": [str(samples["response"][i]) for i in range(batch_size)],
+                    "choice_texts": [list(samples["choice_texts"][i]) for i in range(batch_size)],
+                    "choice_score_mode": ["norm" for _ in range(batch_size)],
                 }
 
             inputs = [
-                f"{intro}Question: {samples['Problem'][i]} Options: {samples['options'][i]} "
-                f"Answer: {get_answer(samples['options'][i], samples['correct'][i])}"
+                f"{samples['question'][i]} {samples['response'][i]}"
                 for i in range(batch_size)
             ]
 
             max_len = min(args.max_seq_length, tokenizer.model_max_length)
-            return tokenizer(
-                inputs,
-                max_length=max_len,
-                truncation=True,
-            )
+            return tokenizer(inputs, max_length=max_len, truncation=True)
 
         return super().process_dataset(tokenizer, process_function)
 
@@ -467,11 +471,11 @@ def _normalize_causal_text(text):
 def _score_causal_prediction(dataset_name, prediction, answer):
     dataset_name = str(dataset_name).lower()
     if dataset_name == "gsm8k":
-        return pred_extracted == answer_extracted
+        return gsm8k_exact_match(prediction, answer)
 
     pred_norm = _normalize_causal_text(prediction)
     answer_norm = _normalize_causal_text(answer)
-    return gsm8k_exact_match(prediction, answer)
+    return answer_norm in pred_norm
 
 
 def _dataset_from_pairs(pairs):
@@ -1413,7 +1417,7 @@ class CausalLMGenerationTrainer(Trainer):
         accuracy = (correct / total) if total > 0 else 0.0
         return accuracy, predictions, references
 
-    def _multiple_choice_accuracy(self, dataset):
+    def _multiple_choice_accuracy(self, dataset, score_mode_override=None):
         tokenizer = self._get_tokenizer()
         if tokenizer is None:
             raise ValueError("CausalLMGenerationTrainer requires a tokenizer/processing_class.")
@@ -1434,7 +1438,7 @@ class CausalLMGenerationTrainer(Trainer):
             prompt = item["text"]
             answer = str(item["answer"]).strip()
             choices = list(item.get("choice_texts", item.get("choice_labels", [])))
-            score_mode = item.get("choice_score_mode", "sum")
+            score_mode = score_mode_override or item.get("choice_score_mode", "sum")
 
             best_choice = None
             best_score = None
@@ -1505,11 +1509,20 @@ class CausalLMGenerationTrainer(Trainer):
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix: str = "eval", **kwargs):
         eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
         dataset_name = str(getattr(self.args, "dataset", "")).lower()
-        if dataset_name in {"bigbench_date", "object_tracking"}:
+        if dataset_name in {"mathqa", "math_qa"}:
+            accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset, score_mode_override="norm")
+            raw_accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset, score_mode_override="sum")
+            metrics = {
+                f"{metric_key_prefix}_accuracy": accuracy,
+                f"{metric_key_prefix}_acc": raw_accuracy,
+                f"{metric_key_prefix}_acc_norm": accuracy,
+            }
+        elif dataset_name in {"bigbench_date", "object_tracking"}:
             accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset)
+            metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         else:
             accuracy, _, _ = self._generate_accuracy(eval_dataset)
-        metrics = {f"{metric_key_prefix}_accuracy": accuracy}
+            metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         self.log(metrics)
         self.control = self.callback_handler.on_evaluate(
             self.args, self.state, self.control, metrics
@@ -1518,11 +1531,22 @@ class CausalLMGenerationTrainer(Trainer):
 
     def predict(self, test_dataset, ignore_keys=None, metric_key_prefix: str = "predict", **kwargs):
         dataset_name = str(getattr(self.args, "dataset", "")).lower()
-        if dataset_name in {"bigbench_date", "object_tracking"}:
+        if dataset_name in {"mathqa", "math_qa"}:
+            accuracy, predictions, references = self._multiple_choice_accuracy(
+                test_dataset, score_mode_override="norm"
+            )
+            raw_accuracy, _, _ = self._multiple_choice_accuracy(test_dataset, score_mode_override="sum")
+            metrics = {
+                f"{metric_key_prefix}_accuracy": accuracy,
+                f"{metric_key_prefix}_acc": raw_accuracy,
+                f"{metric_key_prefix}_acc_norm": accuracy,
+            }
+        elif dataset_name in {"bigbench_date", "object_tracking"}:
             accuracy, predictions, references = self._multiple_choice_accuracy(test_dataset)
+            metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         else:
             accuracy, predictions, references = self._generate_accuracy(test_dataset)
-        metrics = {f"{metric_key_prefix}_accuracy": accuracy}
+            metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         return PredictionOutput(
             predictions=np.array(predictions, dtype=object),
             label_ids=np.array(references, dtype=object),

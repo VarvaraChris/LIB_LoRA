@@ -3,6 +3,8 @@ import os
 
 def get_optuna_metric_name(dataset_name: str) -> str:
     dataset_name = dataset_name.lower()
+    if dataset_name in ["math_qa", "mathqa"]:
+        return "eval_acc_norm"
     if dataset_name in [
         "aqua",
         "gsm8k",
@@ -17,8 +19,6 @@ def get_optuna_metric_name(dataset_name: str) -> str:
         "object_tracking",
         "coin_flip",
         "last_letters",
-        "math_qa",
-        "mathqa",
         "hella_swag",
         "arc_challenge",
     ]:

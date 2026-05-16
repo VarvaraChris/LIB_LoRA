@@ -1,0 +1,18 @@
+{
+  "study_name": "meta-llama_Meta-Llama-3.1-8B__bigbench_date__LoRA",
+  "best_value": 1.0,
+  "best_params": {
+    "lr": 0.0003227154376419809,
+    "lora_r": 4
+  },
+  "best_trial_number": 10,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_accuracy": 1.0,
+      "epoch": 52.648648648648646,
+      "eval_samples": 73
+    },
+    "lora_r": 4,
+    "lr": 0.0003227154376419809
+  }
+}

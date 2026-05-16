@@ -14,7 +14,7 @@ import warnings
 
 DATASETS = ["mathqa", "coin_flip"]
 
-MULTIPLE_CHOICE_DATASETS = {"bigbench_date", "object_tracking"}
+MULTIPLE_CHOICE_DATASETS = {"bigbench_date", "object_tracking", "mathqa"}
 
 warnings.filterwarnings("ignore")
 

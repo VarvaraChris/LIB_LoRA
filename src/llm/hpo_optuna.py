@@ -18,6 +18,7 @@ from llm.main_llm import run_single_experiment
 
 def objective_factory(base_args):
     metric_name = get_optuna_metric_name(base_args.dataset)
+    study_name = build_study_name(base_args)
 
     def objective(trial):
         args = copy.deepcopy(base_args)
@@ -27,7 +28,12 @@ def objective_factory(base_args):
         args.lr = sampled["lr"]
         if "lora_r" in sampled:
             args.lora_r = sampled["lora_r"]
-
+        args.results_path = os.path.join(
+            base_args.results_path,
+            "hpo_runs",
+            study_name,
+            f"trial_{trial.number}",
+        )
         logger.info(
             f"[Trial {trial.number}] dataset={args.dataset}, "
             f"model={args.model}, method={args.ft_strategy}, "
@@ -47,10 +53,14 @@ def objective_factory(base_args):
         score = eval_metrics[metric_name]
 
         #Сохраняем служебную информацию в trial
-        trial.set_user_attr("eval_metrics", eval_metrics)
-        trial.set_user_attr("lr", args.lr)
+        safe_eval_metrics = {
+            key: value.item() if hasattr(value, "item") else value
+            for key, value in eval_metrics.items()
+        }
+        trial.set_user_attr("eval_metrics", safe_eval_metrics)
+        trial.set_user_attr("lr", float(args.lr))
         if "lora_r" in sampled:
-            trial.set_user_attr("lora_r", args.lora_r)
+            trial.set_user_attr("lora_r", int(args.lora_r))
 
         #Освобождаем память
         gc.collect()

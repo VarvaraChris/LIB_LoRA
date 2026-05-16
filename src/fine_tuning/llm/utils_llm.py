@@ -4,6 +4,8 @@ from torch.utils.data import Dataset
 from utils import shuffleDict
 from datasets import load_dataset
 from llm.gsm8k_utils import build_gsm8k_prompt
+from llm.mathqa_utils import build_mathqa_prompt, get_mathqa_choice_texts, get_mathqa_correct_choice
+
 
 class DatasetBuilder:
     """Base class for dataset builders"""
@@ -334,12 +336,12 @@ class BigBenchDatasetBuilder(DatasetBuilder):
         dataset = load_dataset(path, subset)
 
         def convert(split):
-             questions, answers, choice_lists = [], [], []
+            questions, answers, choice_lists = [], [], []
             for item in split:
                 question, answer, choices = self._process_bigbench_item(item)
                 questions.append(question)
                 answers.append(answer)
-            choice_lists.append(choices)
+                choice_lists.append(choices)
             return questions, answers, choice_lists
 
         if "train" in dataset:
@@ -412,38 +414,40 @@ class CoinFlipLastLettersDatasetBuilder(DatasetBuilder):
 
 class MathQADatasetBuilder(DatasetBuilder):
     def get_intro_blurb(self):
-        return "answer only the numbers, write answer first."
+        return ""
+
+    def create_prompt_formats(self, sample, eval_mode=False):
+        if eval_mode:
+            sample["text"] = sample["question"]
+        else:
+            sample["text"] = f"{sample['question']} {sample['response']}"
+        return sample
 
     def build_dataset(self):
-        dataset = load_dataset("allenai/math_qa")
+        dataset = load_dataset("regisss/math_qa")
         train_data = dataset["train"]
-        test_data = dataset["test"]
+        test_data = dataset["test"] if "test" in dataset else []
+        eval_data = dataset["validation"] if "validation" in dataset else test_data
 
         for item in train_data:
-            q = item["Problem"].replace("\n", "").replace("\\n", "")
-            choices = {
-                d.strip()[0]: d.split(")")[-1].strip()
-                for d in item["options"].split(",")
-            }
-            a = choices.get(item["correct"])
-            o = item["options"].replace("\n", "").replace("\\n", "")
+            q = build_mathqa_prompt(item["Problem"], item["options"])
+            a = get_mathqa_correct_choice(item["options"], item["correct"])
+            choices = get_mathqa_choice_texts(item["options"])
 
-            if q and a:
-                self.train_questions.append(q + f". Choices: {o}")
+            if q and a and choices:
+                self.train_questions.append(q)
                 self.train_answers.append(a)
+                self.train_choices.append(choices)
 
-        for item in test_data:
-            q = item["Problem"].replace("\n", "").replace("\\n", "")
-            choices = {
-                d.strip()[0]: d.split(")")[-1].strip()
-                for d in item["options"].split(",")
-            }
-            a = choices.get(item["correct"])
-            o = item["options"].replace("\n", "").replace("\\n", "")
+        for item in eval_data:
+            q = build_mathqa_prompt(item["Problem"], item["options"])
+            a = get_mathqa_correct_choice(item["options"], item["correct"])
+            choices = get_mathqa_choice_texts(item["options"])
 
-            if q and a:
-                self.eval_questions.append(q + f". Choices: {o}")
+            if q and a and choices:
+                self.eval_questions.append(q)
                 self.eval_answers.append(a)
+                self.eval_choices.append(choices)
 
 
 class DatasetRegistry:
