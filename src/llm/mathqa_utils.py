@@ -31,5 +31,8 @@ def get_mathqa_correct_choice(options, correct_label):
 
 
 def build_mathqa_prompt(problem, options):
-    del options
-    return f"Question: {_clean_text(problem)}\nAnswer:"
+    lines = [f"Question: {_clean_text(problem)}", "Answer Choices:"]
+    for label, text in parse_mathqa_choices(options):
+        lines.append(f"({label}) {text}")
+    lines.append("Answer:")
+    return "\n".join(lines)

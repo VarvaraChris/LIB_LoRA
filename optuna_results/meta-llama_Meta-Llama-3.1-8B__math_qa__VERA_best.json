@@ -1,0 +1,18 @@
+{
+  "study_name": "meta-llama_Meta-Llama-3.1-8B__math_qa__VERA",
+  "best_value": 0.4405594405594406,
+  "best_params": {
+    "lr": 0.009699653316166651,
+    "lora_r": 4
+  },
+  "best_trial_number": 10,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_accuracy": 0.4405594405594406,
+      "epoch": 0.5482456140350878,
+      "eval_samples": 1001
+    },
+    "lora_r": 4,
+    "lr": 0.009699653316166651
+  }
+}

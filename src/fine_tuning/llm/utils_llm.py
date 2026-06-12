@@ -424,7 +424,10 @@ class MathQADatasetBuilder(DatasetBuilder):
         return sample
 
     def build_dataset(self):
-        dataset = load_dataset("regisss/math_qa")
+        try:
+            dataset = load_dataset("math_qa")
+        except Exception:
+            dataset = load_dataset("regisss/math_qa")
         train_data = dataset["train"]
         test_data = dataset["test"] if "test" in dataset else []
         eval_data = dataset["validation"] if "validation" in dataset else test_data

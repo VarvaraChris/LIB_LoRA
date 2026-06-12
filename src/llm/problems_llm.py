@@ -1510,13 +1510,8 @@ class CausalLMGenerationTrainer(Trainer):
         eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
         dataset_name = str(getattr(self.args, "dataset", "")).lower()
         if dataset_name in {"mathqa", "math_qa"}:
-            accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset, score_mode_override="norm")
-            raw_accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset, score_mode_override="sum")
-            metrics = {
-                f"{metric_key_prefix}_accuracy": accuracy,
-                f"{metric_key_prefix}_acc": raw_accuracy,
-                f"{metric_key_prefix}_acc_norm": accuracy,
-            }
+            accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset, score_mode_override="sum")
+            metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         elif dataset_name in {"bigbench_date", "object_tracking"}:
             accuracy, _, _ = self._multiple_choice_accuracy(eval_dataset)
             metrics = {f"{metric_key_prefix}_accuracy": accuracy}
@@ -1533,14 +1528,9 @@ class CausalLMGenerationTrainer(Trainer):
         dataset_name = str(getattr(self.args, "dataset", "")).lower()
         if dataset_name in {"mathqa", "math_qa"}:
             accuracy, predictions, references = self._multiple_choice_accuracy(
-                test_dataset, score_mode_override="norm"
+                test_dataset, score_mode_override="sum"
             )
-            raw_accuracy, _, _ = self._multiple_choice_accuracy(test_dataset, score_mode_override="sum")
-            metrics = {
-                f"{metric_key_prefix}_accuracy": accuracy,
-                f"{metric_key_prefix}_acc": raw_accuracy,
-                f"{metric_key_prefix}_acc_norm": accuracy,
-            }
+            metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         elif dataset_name in {"bigbench_date", "object_tracking"}:
             accuracy, predictions, references = self._multiple_choice_accuracy(test_dataset)
             metrics = {f"{metric_key_prefix}_accuracy": accuracy}
