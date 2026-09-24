@@ -1,0 +1,18 @@
+{
+  "study_name": "Qwen_Qwen2-7B__math_qa__DoRA",
+  "best_value": 0.5263277866423524,
+  "best_params": {
+    "lr": 0.0003944275982105143,
+    "lora_r": 4
+  },
+  "best_trial_number": 2,
+  "best_trial_user_attrs": {
+    "eval_metrics": {
+      "eval_accuracy": 0.5263277866423524,
+      "epoch": 0.5483019773140057,
+      "eval_samples": 4387
+    },
+    "lora_r": 4,
+    "lr": 0.0003944275982105143
+  }
+}
